@@ -12,21 +12,23 @@ SECTIONS {
   .patchA 0x0800F454 : {
     uart_mirror.o(.text)
     control.o(.text.key_hook)
+    *pindump.o(.text.pin_isr .rodata.reg .rodata.excl)   /* PIN_DEBUG build only (no IR patch) */
     ir_decode.o(.text.sony* .text.ir_edge_isr)
     screen.o(.text.pixel_hook .text.remap*)
   }
   ASSERT(. <= 0x0800F7E8, "region A overflow")
-  .patchB 0x0800F804 : { ir_decode.o(.text.ir_poll .text.ac_print) control.o(.rodata*) ir_decode.o(.rodata.ac_print*) }
+  .patchB 0x0800F804 : { ir_decode.o(.text.ir_poll .text.ac_print) control.o(.rodata*) ir_decode.o(.rodata.ac_print*)
+             *pindump.o(.text* .rodata*) }
   ASSERT(. <= 0x0800FA72, "region B overflow")
   .patchC 0x08004848 : { ir_decode.o(.text.gree*) screen.o(.text.color_char) }
   ASSERT(. <= 0x08004978, "region C overflow")
-  .patchD 0x08003C4C : { ir_decode.o(.text.pd_bits*) }
+  .patchD 0x08003C4C : { ir_decode.o(.text.pd_bits*) . = ALIGN(2); }
   ASSERT(. <= 0x08003CB0, "region D overflow")
-  .patchE 0x0800F2BC : { ir_decode.o(.rodata.ir_poll*) }
+  .patchE 0x0800F2BC : { ir_decode.o(.rodata.ir_poll*) . = ALIGN(2); }
   ASSERT(. <= 0x0800F30E, "region E overflow")
-  .patchF 0x0800F160 : { ir_decode.o(.text.rearm) }
+  .patchF 0x0800F160 : { ir_decode.o(.text.rearm) . = ALIGN(2); }
   ASSERT(. <= 0x0800F1A6, "region F overflow")
-  .patchG 0x0800EF50 : { ir_decode.o(.text.pulse_distance*) screen.o(.rodata*) }
+  .patchG 0x0800EF50 : { ir_decode.o(.text.pulse_distance*) screen.o(.rodata*) . = ALIGN(2); }
   ASSERT(. <= 0x0800EFA8, "region G overflow")
   .putc 0x0800B2DC (NOLOAD) : { *(.putc) }
   .empty 0 (NOLOAD) : { *(.text) *(.data) *(.bss) *(COMMON) }

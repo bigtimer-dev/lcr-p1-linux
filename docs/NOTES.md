@@ -98,3 +98,17 @@ The main loop reads the queue at 0x0800B964 (`0x080051E0`).
 - Gree / Kelvinator AC: 3 messages 40 ms apart, each 9 ms / 4.5 ms leader + 35 bits (4 bytes + `010`)
   + 20 ms gap + 32 bits. Checksum = (10 + Σ low nibbles of bytes 0–3 + Σ high nibbles of bytes 4–6)
   & 15, in the high nibble of byte 7.
+
+## Pin-mapping build (`PIN_DEBUG=1`)
+
+`build/APP_LCR-P1-EN_V1.1.0u_pindebug.BIN` maps the remaining board pins (relay, HV boost enable, keys, LCD
+control) without opening the meter. `firmware/pindump.c` wraps the stock 200 Hz timer ISR (IRQ20 vector,
+0x080060F4) and samples the input and output registers of ports A, B, C and F every tick, so it also sees
+states that only exist during a measurement, while the main loop is blocked. Changed bits go into a
+32-entry ring buffer in free RAM at 0x20002000 (the N32G032C8L7 has 16 KB of RAM; the stock firmware uses up
+to 0x200018C8). The main-loop hook prints them as `#E`, plus a `#S` snapshot (inputs, outputs, pin modes,
+dropped events) each second and `#B` for pins that toggle too fast to log (LCD control). Probe, UART, IR and
+LCD SPI pins are never logged as events. This build has no serial commands and no IR patch (the stock NEC
+decoder runs) to fit the code space. `PYTHONPATH=app python3 firmware/pinlog.py` walks through the key
+presses and mode changes and prints each pin change with its step; `--replay` decodes a saved log.
+

@@ -41,6 +41,7 @@ Needs `arm-none-eabi-gcc` / binutils and Python 3.
    python3 firmware/make_patch.py            # -> build/APP_LCR-P1-EN_V1.1.0u.BIN
    AUTOOFF_S=600 LOWBAT_MV=3500 python3 firmware/make_patch.py   # other settings
    BOOT_ART=skull python3 firmware/make_patch.py  # other boot picture (firmware/art/*.py, 32x32)
+   PIN_DEBUG=1 python3 firmware/make_patch.py     # diagnostic build: logs GPIO changes (see docs/NOTES.md)
    ```
    The build checks the stock file's SHA-256 and every patched location before changing it.
 3. Optional, run the emulator tests (they drive the patched code with real IR recordings):

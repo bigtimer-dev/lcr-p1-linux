@@ -47,23 +47,6 @@ typedef int (*printf_t)(const char *, ...);
 typedef int (*putc_t)(int);
 #define PUTC    ((putc_t)0x0800B2DD)    /* fputc -> USART1 */
 
-#ifdef PIN_DEBUG
-/* diagnostic build: once a second print USART1 status and the port A/B/F input levels */
-int key_hook(void)
-{
-    static uint32_t * const last = (uint32_t *)0x20001F08;
-    int k = KEYSCAN();
-    uint32_t now = TICKS;
-    if (now - *last >= TICK_HZ) {
-        *last = now;
-        PRINTF("\n#D %x %x %x %x\n", U_STS, *(volatile uint32_t *)0x40010810,
-               *(volatile uint32_t *)0x40010C10, *(volatile uint32_t *)0x40011C10);
-        while (U_STS & 0x20)
-            (void)U_DAT;
-    }
-    return k;
-}
-#else
 int key_hook(void)
 {
     struct ctl *c = CTL;
@@ -121,4 +104,3 @@ int key_hook(void)
         c->wait = 1;
     return k;
 }
-#endif

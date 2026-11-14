@@ -8,6 +8,8 @@ Output: build/APP_LCR-P1-EN_V1.1.0u.BIN (same size as stock). Options (environme
                      changeable over USB with #A<s>)
     LOWBAT_MV=3400   low-battery shutdown, value as shown on the battery screen (stock ~3500)
     BOOT_ART=mask    boot picture, from firmware/art/<name>.py (mask, skull)
+    PIN_DEBUG=1      diagnostic build (..._pindebug.BIN): logs GPIO changes over USB serial instead of
+                     taking serial commands (firmware/pindump.c, PC side tools/pinlog.py)
 
 Every patched location is checked against the stock bytes first; anything unexpected stops
 the build. Needs arm-none-eabi-gcc / binutils.
@@ -58,11 +60,16 @@ def sym(elf, name):
     raise KeyError(name)
 
 
+REGION_AT = {'.patchE': 0x0800F2BC, '.patchF': 0x0800F160}   # used when a region is empty (no section)
+
+
 def section_addr(elf, name):
     for line in subprocess.check_output(['arm-none-eabi-objdump', '-h', elf], text=True).splitlines():
         f = line.split()
         if len(f) > 3 and f[1] == name:
             return int(f[3], 16)
+    if name in REGION_AT:
+        return REGION_AT[name]
     raise KeyError(name)
 
 
@@ -82,22 +89,26 @@ run('arm-none-eabi-gcc', '-Os', '-mcpu=cortex-m0', '-mthumb', '-ffreestanding', 
     '-o', 'ir_decode.o')
 AUTOOFF_S = int(os.environ.get('AUTOOFF_S', '300'))
 assert 30 <= AUTOOFF_S <= 3600, 'AUTOOFF_S: 30..3600'
+PIN_DEBUG = os.environ.get('PIN_DEBUG') == '1'
+CTL = 'pindump' if PIN_DEBUG else 'control'          # PIN_DEBUG: GPIO logger replaces the serial commands
 run('arm-none-eabi-gcc', '-Os', '-mcpu=cortex-m0', '-mthumb', '-ffreestanding', '-fno-builtin', '-nostdlib',
-    '-fno-common', '-ffunction-sections', '-fdata-sections', '-Wall', '-Werror', f'-DAUTOOFF_DEFAULT_S={AUTOOFF_S}',
-    *(['-DPIN_DEBUG'] if os.environ.get('PIN_DEBUG') == '1' else []),
-    '-c', src('control.c'), '-o', 'control.o')
+    *(['-fno-tree-loop-distribute-patterns'] if PIN_DEBUG else []), '-fno-common', '-ffunction-sections',
+    '-fdata-sections', '-Wall', '-Werror', f'-DAUTOOFF_DEFAULT_S={AUTOOFF_S}', '-c', src(CTL + '.c'), '-o', CTL + '.o')
 run('arm-none-eabi-gcc', '-Os', '-mcpu=cortex-m0', '-mthumb', '-ffreestanding', '-fno-builtin',
     '-fno-tree-loop-distribute-patterns', '-nostdlib', '-fno-common', '-ffunction-sections', '-fdata-sections',
     '-Wall', '-Werror', '-c', src('screen.c'), '-o', 'screen.o')
+if PIN_DEBUG:   # link.ld names these files: empty stand-ins (no serial commands, no IR patch)
+    for f in ('control', 'ir_decode'):
+        run('arm-none-eabi-gcc', '-mcpu=cortex-m0', '-mthumb', '-x', 'c', '-c', '/dev/null', '-o', f + '.o')
 run('arm-none-eabi-ld', '-T', src('link.ld'), '-e', 'hook_char', '--orphan-handling=error', '-o', 'patch.elf',
-    'uart_mirror.o', 'ir_decode.o', 'control.o', 'screen.o')
+    'uart_mirror.o', 'ir_decode.o', 'control.o', 'screen.o', *(['pindump.o'] if PIN_DEBUG else []))
 elf = os.path.join(BUILD, 'patch.elf')
 code = {}
 for r in 'ABCDEFG':
     run('arm-none-eabi-objcopy', '-O', 'binary', '-j', f'.patch{r}', 'patch.elf', f'patch{r}.bin')
     code[r] = open(os.path.join(BUILD, f'patch{r}.bin'), 'rb').read()
 CODE_AT, CODEB_AT = section_addr(elf, '.patchA'), section_addr(elf, '.patchB')
-IR_POLL, HOOK_GLYPH = sym(elf, 'ir_poll'), sym(elf, 'hook_glyph')
+HOOK_GLYPH = sym(elf, 'hook_glyph')
 o = lambda a: a - BASE                                # noqa: E731
 
 assert CODE_AT + len(code['A']) <= FREE_END, 'region A does not fit'
@@ -138,6 +149,10 @@ for a, old_b, new_b in ((0x08008F5C, b'\x01\x21', b'\x03\x21'),   # movs r1,#1 -
     img[o(a):o(a) + 2] = new_b
 assert img[o(KEY_SITE):o(KEY_SITE) + 4] == bl(KEY_SITE, KEYSCAN)
 img[o(KEY_SITE):o(KEY_SITE) + 4] = bl(KEY_SITE, sym(elf, 'key_hook'))
+if PIN_DEBUG:   # GPIO sampler wraps the stock 200 Hz timer ISR (IRQ20)
+    VEC_IRQ20, STOCK_TICK_ISR = 0x90, 0x080060F5
+    assert struct.unpack_from('<I', img, VEC_IRQ20)[0] == STOCK_TICK_ISR
+    struct.pack_into('<I', img, VEC_IRQ20, sym(elf, 'pin_isr') | 1)
 
 # Boot screen: the FNIRSI logo (1-bit bitmap, 93x18, 222 bytes at 0x0800EECA; only used by the
 # splash routine 0x0800DE50) is overwritten with a 32x32 picture (art/<BOOT_ART>.py), drawn by the
@@ -201,7 +216,8 @@ for r in 'BEF':
     a = section_addr(elf, f'.patch{r}')
     img[o(a):o(a) + len(code[r])] = code[r]
 
-if True:   # IR patch
+if not PIN_DEBUG:   # IR patch (left out of the PIN_DEBUG build for code space: stock NEC decoder)
+    IR_POLL = sym(elf, 'ir_poll')
     assert img[o(IR_SITE):o(IR_SITE) + 4] == bl(IR_SITE, IR_STOCK)
     img[o(IR_SITE):o(IR_SITE) + 4] = bl(IR_SITE, IR_POLL)
     # our IR edge ISR on vector IRQ8 (EXTI11)

@@ -13,3 +13,8 @@ echo "== IR";            "$PY" "$ROOT/firmware/test/ir_test.py" "$STOCK" "$OUT" 
 echo "== commands";      "$PY" "$ROOT/firmware/test/control_test.py" "$OUT" "$ROOT/build/patch.elf"
 echo "== screen";        "$PY" "$ROOT/firmware/test/screen_test.py" "$OUT" "$ROOT/build/patch.elf"
 PYTHONPATH="$ROOT/app" python3 -m lcrp1 flash --check "$OUT"
+echo "== pin-debug build"
+PIN_DEBUG=1 python3 "$ROOT/firmware/make_patch.py" >/dev/null
+"$PY" "$ROOT/firmware/test/pindump_test.py" "$ROOT/build/APP_LCR-P1-EN_V1.1.0u_pindebug.BIN" "$ROOT/build/patch.elf"
+PYTHONPATH="$ROOT/app" python3 -m lcrp1 flash --check "$ROOT/build/APP_LCR-P1-EN_V1.1.0u_pindebug.BIN"
+python3 "$ROOT/firmware/make_patch.py" >/dev/null     # leave build/ with the normal image + its patch.elf
