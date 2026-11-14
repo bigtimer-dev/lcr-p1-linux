@@ -20,7 +20,7 @@ patches that exact file.
 | AC remotes | first 4 bytes, as if NEC | first 4 bytes on screen + `Long code - see PC`; all 8 bytes over USB |
 | Unknown remotes | nothing | raw mark/space timings over USB (`IR raw <n>: …`), up to 760 edges |
 | Auto power-off | 60 s | 5 min (`AUTOOFF_S`), changeable from the PC: off … 60 min |
-| Screen | white text, FNIRSI boot logo | minimal purple theme: values purple, labels grey, symbols/icons purple, boot picture (skull or horned mask) |
+| Screen | white text, colour icons, FNIRSI boot logo | minimal purple theme: values purple, labels grey, symbols and icons purple, pin legend as plain grey digits, boot picture (horned mask or skull) |
 | PC control | none | run a test, auto-repeat tests, auto power-off, power off (USB serial commands) |
 | Low-battery shutdown | ~3.5 V | 3.4 V (`LOWBAT_MV`, 3.3 – 3.6 V) |
 
@@ -40,7 +40,7 @@ Needs `arm-none-eabi-gcc` / binutils and Python 3.
    ```sh
    python3 firmware/make_patch.py            # -> build/APP_LCR-P1-EN_V1.1.0u.BIN
    AUTOOFF_S=600 LOWBAT_MV=3500 python3 firmware/make_patch.py   # other settings
-   BOOT_ART=mask python3 firmware/make_patch.py   # other boot picture (firmware/art/*.py)
+   BOOT_ART=skull python3 firmware/make_patch.py  # other boot picture (firmware/art/*.py, 32x32)
    ```
    The build checks the stock file's SHA-256 and every patched location before changing it.
 3. Optional, run the emulator tests (they drive the patched code with real IR recordings):

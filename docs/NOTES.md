@@ -58,6 +58,10 @@ a broken application can always be replaced.
 | serial commands | BL at 0x0800B964 (main loop → key-queue read 0x080051E0) | → `key_hook` (`control.c`): real key, else USART commands; returns TEST (0x21) for `#T` / auto-repeat |
 | USART1 receive | 0x08008F5C, 0x08008F80 in the USART init | pins 0x200 → 0x600 (PA9 + PA10, unused by the firmware), mode TX → TX\|RX |
 | low battery | literal 0x0800BCE0 | 3300 → `LOWBAT_MV − 200` |
+| text colours | hook tail → `color_char` (`screen.c`) | white values/units/`0x` codes → purple, `…:` labels → grey, titles white |
+| graphics colours | 5 BLs to 0x08006060 that send pixels (bitmap ×2, plot, char, glyph) | → `pixel_hook`: colours → purple, greys → dim; black, white, red kept |
+| boot screen | logo bitmap 0x0800EECA, its colour/position, version strings | 32×32 picture in purple, centred; only a grey `1.1.0` |
+| pin legend | BL 0x0800DF0C (panel), literal 0x0800E110 | panel not drawn, digits grey |
 
 Code space (the image is full):
 
@@ -71,6 +75,10 @@ Code space (the image is full):
   hidden `memset` / libgcc division calls that do not exist in the firmware).
 
 ## Lessons
+
+- **0x08006060 is not "write pixel".** It sends any 16-bit word to the LCD, and 7 of its 12 callers send
+  window coordinates. Remapping all 12 as colours scrambled the whole screen on the meter. The screen test
+  now runs the real window/pixel code against a model LCD that decodes the command stream.
 
 - **Don't remove the `Check Pin` debug prints.** Each takes ~4 ms on the UART inside the pin probe. With
   them removed, a 1 MΩ resistor read as 2 pF: the delay is de-facto settling time.
