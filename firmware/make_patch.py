@@ -7,7 +7,7 @@ Output: build/APP_LCR-P1-EN_V1.1.0u.BIN (same size as stock). Options (environme
     AUTOOFF_S=300    auto power-off after N s idle at power-on (stock 60, allowed 30..3600;
                      changeable over USB with #A<s>)
     LOWBAT_MV=3400   low-battery shutdown, value as shown on the battery screen (stock ~3500)
-    BOOT_ART=skull   boot picture, from firmware/art/<name>.py
+    BOOT_ART=mask    boot picture, from firmware/art/<name>.py (mask, skull)
 
 Every patched location is checked against the stock bytes first; anything unexpected stops
 the build. Needs arm-none-eabi-gcc / binutils.
@@ -144,7 +144,7 @@ img[o(KEY_SITE):o(KEY_SITE) + 4] = bl(KEY_SITE, sym(elf, 'key_hook'))
 # stock code in the accent colour and centred. The version line loses its "--- V:" / " ---"
 # decoration and is centred in grey. The rest of the old bitmap becomes region G.
 sys.path.insert(0, os.path.join(HERE, 'art'))
-art = __import__(os.environ.get('BOOT_ART', 'skull')).bitmap()
+art = __import__(os.environ.get('BOOT_ART', 'mask')).bitmap()
 LOGO, LOGO_LEN = 0x0800EECA, 222
 assert hashlib.sha256(stock[o(LOGO):o(LOGO) + LOGO_LEN]).hexdigest()[:16] == 'f4772a4a91733ff4', 'logo not stock'
 assert struct.unpack_from('<I', img, o(0x0800DEBC))[0] == LOGO and len(art) <= 0x0800EF50 - LOGO
@@ -166,10 +166,15 @@ G_AT = section_addr(elf, '.patchG')
 assert G_AT >= LOGO + len(art) and G_AT + len(code['G']) <= LOGO + LOGO_LEN
 img[o(G_AT):o(G_AT) + len(code['G'])] = code['G']
 
-# Every lcd_write_pixel call (text, lines, bitmaps) goes through screen.c: pixel_hook (colour remap).
-PIXEL = 0x08006060
-PIXEL_SITES = [a for a in range(BASE, BASE + len(img) - 4, 2) if img[o(a):o(a) + 4] == bl(a, PIXEL)]
-assert len(PIXEL_SITES) == 12, PIXEL_SITES
+# Pixel colours go through screen.c: pixel_hook (colour remap). 0x08006060 writes any 16-bit word to
+# the LCD: of its 12 callers only these 5 send pixel colours (bitmap x2, line plot, draw_char, glyph);
+# the other 7 send window / cursor coordinates (0x08005B48, 0x08005B7C, 0x08006028) and must not be
+# touched (remapping those scrambled the whole screen on 2026-11-13).
+LCD_WORD = 0x08006060
+PIXEL_SITES = [0x080056D2, 0x0800570C, 0x0800573A, 0x08005CBC, 0x08005DCE]
+COORD_SITES = [0x08005B60, 0x08005B6C, 0x08005BA2, 0x08005BA8, 0x08005BB4, 0x08005BBA, 0x08006032]
+all_sites = [a for a in range(BASE, BASE + len(img) - 4, 2) if img[o(a):o(a) + 4] == bl(a, LCD_WORD)]
+assert sorted(all_sites) == sorted(PIXEL_SITES + COORD_SITES), [hex(a) for a in all_sites]
 for a in PIXEL_SITES:
     img[o(a):o(a) + 4] = bl(a, sym(elf, 'pixel_hook'))
 
