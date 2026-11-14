@@ -166,6 +166,14 @@ G_AT = section_addr(elf, '.patchG')
 assert G_AT >= LOGO + len(art) and G_AT + len(code['G']) <= LOGO + LOGO_LEN
 img[o(G_AT):o(G_AT) + len(code['G'])] = code['G']
 
+# Pin legend on the idle screen (0x0800DEDC): drop the light-blue rounded panel (BL 0x08003BBC at
+# 0x0800DF0C), so its black cells and dots vanish, and draw the pin digits grey: a plain matrix.
+PANEL_SITE, ROUNDRECT = 0x0800DF0C, 0x08003BBC
+assert img[o(PANEL_SITE):o(PANEL_SITE) + 4] == bl(PANEL_SITE, ROUNDRECT)
+img[o(PANEL_SITE):o(PANEL_SITE) + 4] = b'\xc0\x46\xc0\x46'          # nop; nop
+assert struct.unpack_from('<I', img, o(0x0800E110))[0] == 0xFFFF       # legend digit colour
+struct.pack_into('<I', img, o(0x0800E110), 0x8C33)
+
 # Pixel colours go through screen.c: pixel_hook (colour remap). 0x08006060 writes any 16-bit word to
 # the LCD: of its 12 callers only these 5 send pixel colours (bitmap x2, line plot, draw_char, glyph);
 # the other 7 send window / cursor coordinates (0x08005B48, 0x08005B7C, 0x08006028) and must not be

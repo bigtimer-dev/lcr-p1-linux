@@ -143,7 +143,22 @@ for s, x, y, colour in (('Cap:', 5, 20, LABEL), ('4.7', 40, 20, ACCENT), ('Resis
     good = got_fg == {p for p, on in exp.items() if on} and got_bg == {p for p, on in exp.items() if not on}
     check(f'text "{s}" pixel-exact in {colour:#06x}', good and lcd.bad == 0, f'{len(lcd.fb)} px')
 
-# 3) colour remap at the pixel sink (called directly)
+# 3) idle screen pin legend (0x0800DEDC): no panel, grey digits, the '?' icon purple
+lcd.fb.clear()
+call(0x0800DEDC)
+cols = {}
+for p, c in lcd.fb.items():
+    cols.setdefault(c, set()).add(p)
+legend = {p for p in cols.get(LABEL, set())}
+check('idle legend: only black, grey digits and the purple ? icon', set(cols) <= {0, LABEL, ACCENT},
+      {hex(c): len(v) for c, v in cols.items()})
+want = set()
+for x, y, ch in ((0x14, 0x55, '1'), (0x21, 0x55, '2'), (0x2d, 0x55, '3'), (0x14, 0x67, 'K'), (0x21, 0x67, 'A')):
+    want |= {p for p, on in text_pixels(ch, x, y).items() if on}
+check('idle legend: digits drawn in place', want <= legend, f'{len(legend)} grey px')
+check('idle legend: nothing outside the screen', lcd.bad == 0)
+
+# 4) colour remap at the pixel sink (called directly)
 cases = {0x0000: 0x0000, 0xFFFF: 0xFFFF, ACCENT: ACCENT, LABEL: LABEL, 0x07E0: ACCENT, 0xFFE0: ACCENT,
          0x04DB: ACCENT, 0x001F: ACCENT, 0xF800: 0xF800, 0xA534: DIM, 0x8410: DIM, DIM: DIM, 0x2104: DIM}
 bad = []
