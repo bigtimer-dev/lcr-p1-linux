@@ -51,7 +51,9 @@ hook_glyph:
         movs    r0, #'m'
         bl      PUTC
         ldr     r4, =DRAWGLYPH + 1
-tail:   @ restore caller's r0-r4 and lr, continue into the original routine
+tail:   @ recolour (screen.c), restore caller's r0-r4 and lr, continue into the original routine
+        mov     r0, sp
+        bl      color_char              @ may rewrite the saved colour (r3); keeps r4
         ldr     r3, [sp, #20]
         mov     lr, r3
         str     r4, [sp, #20]

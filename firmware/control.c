@@ -34,11 +34,11 @@
 struct ctl {
     uint32_t magic;
     uint32_t tdone;           /* tick when the last test (or key) finished */
+    uint32_t n;               /* number being received */
     uint16_t rep, aoff;       /* seconds; 0 = off */
-    uint8_t len, wait;
-    char buf[10];
+    uint8_t st, cmd, wait;    /* st: 0 idle, 1 after '#', 2 after the letter */
 };
-#define CTL ((struct ctl *)0x20001F04)   /* 0x20001F04..0x20001F1F; main loop only, so not volatile */
+#define CTL ((struct ctl *)0x20001F04)   /* 0x20001F04..0x20001F1B; main loop only, so not volatile */
 
 typedef int (*keyscan_t)(void);
 typedef int (*printf_t)(const char *, ...);
@@ -67,11 +67,11 @@ int key_hook(void)
 int key_hook(void)
 {
     struct ctl *c = CTL;
-    if (c->magic != MAGIC || c->rep > 3600 || c->aoff > 3600) {
+    if (c->magic != MAGIC) {
         c->magic = MAGIC;
         c->rep = 0;
         c->aoff = AUTOOFF_DEFAULT_S;
-        c->len = 0;
+        c->st = 0;
         c->wait = 0;
         c->tdone = TICKS;
     }
@@ -84,17 +84,22 @@ int key_hook(void)
     while (U_STS & 0x20) {
         /* The USART holds one byte and the main loop polls slowly, so the PC sends a byte only
            after the previous one is echoed (lcrp1/port.py). */
-        char ch = U_DAT;
-        PUTC(ch | 0x80);        /* echo, marked: screen text is plain ASCII */
+        unsigned ch = U_DAT & 0xFF;
+        PUTC(ch | 0x80);      /* echo, marked: screen text is plain ASCII */
+        unsigned st = c->st;
+        c->st = 0;            /* anything unexpected drops the line */
         if (ch == '#') {
-            c->len = 1;
-        } else if (c->len && (ch == '\n' || ch == '\r')) {
-            unsigned n = 0;
-            for (int i = 2; i < c->len; i++)
-                n = n * 10 + (c->buf[i] - '0');
-            char cmd = c->buf[1];
-            if (n > 3600)
-                n = 3600;
+            c->st = 1;
+            c->n = 0;
+        } else if (st == 1) {
+            c->cmd = ch;
+            c->st = 2;
+        } else if (st == 2 && ch - '0' < 10 && c->n < 100000) {
+            c->n = c->n * 10 + ch - '0';
+            c->st = 2;
+        } else if (st == 2 && (ch == '\n' || ch == '\r') && c->n < 100000) {
+            unsigned n = c->n > 3600 ? 3600 : c->n;
+            unsigned cmd = c->cmd;
             if (cmd == 'T' && !k)
                 k = KEY_TEST;
             else if (cmd == 'R')
@@ -106,12 +111,6 @@ int key_hook(void)
             else if (cmd != '?')
                 cmd = '!';
             PRINTF("\n#%c R=%d A=%d P=%d\n", cmd, c->rep, c->aoff, (IRF >> 2) & 1);
-            c->len = 0;
-        } else if (c->len) {
-            if (c->len < (int)sizeof c->buf && (c->len < 2 || (ch >= '0' && ch <= '9')))
-                c->buf[c->len++] = ch;
-            else
-                c->len = 0;   /* malformed: drop the line */
         }
     }
     if (!k && c->rep && !(IRF & 4) && now - c->tdone >= (uint32_t)c->rep * TICK_HZ)

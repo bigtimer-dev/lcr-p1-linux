@@ -87,11 +87,14 @@ run('arm-none-eabi-gcc', '-Os', '-mcpu=cortex-m0', '-mthumb', '-ffreestanding', 
     '-fno-common', '-ffunction-sections', '-fdata-sections', '-Wall', '-Werror', f'-DAUTOOFF_DEFAULT_S={AUTOOFF_S}',
     *(['-DPIN_DEBUG'] if os.environ.get('PIN_DEBUG') == '1' else []),
     '-c', src('control.c'), '-o', 'control.o')
+run('arm-none-eabi-gcc', '-Os', '-mcpu=cortex-m0', '-mthumb', '-ffreestanding', '-fno-builtin',
+    '-fno-tree-loop-distribute-patterns', '-nostdlib', '-fno-common', '-ffunction-sections', '-fdata-sections',
+    '-Wall', '-Werror', '-c', src('screen.c'), '-o', 'screen.o')
 run('arm-none-eabi-ld', '-T', src('link.ld'), '-e', 'hook_char', '--orphan-handling=error', '-o', 'patch.elf',
-    'uart_mirror.o', 'ir_decode.o', 'control.o')
+    'uart_mirror.o', 'ir_decode.o', 'control.o', 'screen.o')
 elf = os.path.join(BUILD, 'patch.elf')
 code = {}
-for r in 'ABCDEF':
+for r in 'ABCDEFG':
     run('arm-none-eabi-objcopy', '-O', 'binary', '-j', f'.patch{r}', 'patch.elf', f'patch{r}.bin')
     code[r] = open(os.path.join(BUILD, f'patch{r}.bin'), 'rb').read()
 CODE_AT, CODEB_AT = section_addr(elf, '.patchA'), section_addr(elf, '.patchB')
@@ -137,6 +140,17 @@ for a, old_b, new_b in ((0x08008F5C, b'\x01\x21', b'\x03\x21'),   # movs r1,#1 -
 assert img[o(KEY_SITE):o(KEY_SITE) + 4] == bl(KEY_SITE, KEYSCAN)
 img[o(KEY_SITE):o(KEY_SITE) + 4] = bl(KEY_SITE, sym(elf, 'key_hook'))
 
+# Boot splash: the FNIRSI logo (1-bit bitmap, 93x18, 222 bytes at 0x0800EECA; its only use is the
+# BL at 0x0800DE62 in the splash routine) is replaced by screen.c: splash ("LCR-P1" from the font);
+# the bitmap bytes become region G.
+LOGO, LOGO_LEN, SPLASH_SITE, STOCK_BITMAP = 0x0800EECA, 222, 0x0800DE62, 0x08005680
+assert hashlib.sha256(stock[o(LOGO):o(LOGO) + LOGO_LEN]).hexdigest()[:16] == 'f4772a4a91733ff4', 'logo not stock'
+assert img[o(SPLASH_SITE):o(SPLASH_SITE) + 4] == bl(SPLASH_SITE, STOCK_BITMAP)
+img[o(SPLASH_SITE):o(SPLASH_SITE) + 4] = bl(SPLASH_SITE, sym(elf, 'splash'))
+G_AT = section_addr(elf, '.patchG')
+assert LOGO <= G_AT and G_AT + len(code['G']) <= LOGO + LOGO_LEN
+img[o(G_AT):o(G_AT) + len(code['G'])] = code['G']
+
 # Serial mirror: every draw_char / glyph call goes through the hooks in uart_mirror.S.
 for s in CHAR_SITES:
     assert img[o(s):o(s) + 4] == bl(s, DRAWCHAR), hex(s)
@@ -181,4 +195,5 @@ open(OUT, 'wb').write(img)
 print(f'wrote {os.path.relpath(OUT, ROOT)}  sha256 {hashlib.sha256(img).hexdigest()[:16]}')
 print(f'  auto power-off {AUTOOFF_S} s at power-on (60 min hard limit), low-battery cutoff {LOWBAT_MV} mV, IR patch {"off" if NO_IR else "on"}')
 print(f'  code: A {len(code["A"])}/{FREE_END - CODE_AT}  B {len(code["B"])}/{B_END - CODEB_AT}  '
-      f'C {len(code["C"])}/304  D {len(code["D"])}/100  E {len(code["E"])}/82  F {len(code["F"])}/70 bytes')
+      f'C {len(code["C"])}/304  D {len(code["D"])}/100  E {len(code["E"])}/82  F {len(code["F"])}/70  '
+      f'G {len(code["G"])}/220 bytes')

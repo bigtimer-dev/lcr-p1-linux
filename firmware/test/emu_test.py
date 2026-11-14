@@ -20,7 +20,7 @@ def hk(uc, addr, size, _):
     elif addr == DRAWCHAR:
         chars.append((r[0], r[1], chr(r[2]), r[3], struct.unpack('<3I', uc.mem_read(sp, 12))))
     elif addr == DRAWGLYPH:
-        glyphs.append((r[0], r[1], bytes(uc.mem_read(r[2], 2)), struct.unpack('<3I', uc.mem_read(sp, 12))))
+        glyphs.append((r[0], r[1], bytes(uc.mem_read(r[2], 2)), struct.unpack('<3I', uc.mem_read(sp, 12)), r[3]))
     else:
         return
     uc.reg_write(UC_ARM_REG_PC, uc.reg_read(UC_ARM_REG_LR))  # stub returns
@@ -46,6 +46,12 @@ print('UART  :', repr(bytes(out).decode()))
 assert bytes(out).decode() == '\nCap: 4712ohm\nResistance', 'mirror output wrong'
 assert ''.join(c[2] for c in chars) == 'Cap:4712Resistance' and len(glyphs) == 1, 'draw calls not passed through'
 print('chars :', ''.join(c[2] for c in chars), '| first', chars[0], '| uint first', chars[4])
+ACCENT, LABEL, WHITE = 0x5DDF, 0x9D16, 0xFFFF
+col = {c[2] + str(i): c[3] & 0xFFFF for i, c in enumerate(chars)}
+assert all(c[3] & 0xFFFF == LABEL for c in chars[0:4]), 'label "Cap:" not grey'
+assert all(c[3] & 0xFFFF == ACCENT for c in chars[4:8]), 'number not accent'
+assert all(c[3] & 0xFFFF == WHITE for c in chars[8:]), 'title "Resistance" not white'
+assert glyphs[0][4] & 0xFFFF == ACCENT, 'ohm glyph not accent'
 print('glyphs:', glyphs)
 FLOAT = 0x08005E10  # draw_float_1(x, y, float, ndigits, [sp] fg, bg, size)
 f = struct.unpack('<I', struct.pack('<f', 47.12))[0]
@@ -55,4 +61,14 @@ call(FLOAT, (0x2a, 0x40, f, 3), (0xffff, 0, 12))
 uc.mem_write(STR, b'k\x00'); call(DRAWSTR, (0x2a + 6 * 4 + 2, 0x40, STR, 0xffff), (0, 12, 1))
 print('UART2 :', repr(bytes(out).decode()))
 assert bytes(out).decode() == '\nvalue:47.1 k', 'float value mirrored wrongly'
+cols = [c[3] & 0xFFFF for c in chars]
+assert cols[-1] == ACCENT, 'unit "k" not accent'
+assert all(x == ACCENT for x in cols[-5:-1]), 'float digits not accent'
+# non-white text keeps its colour (FNIRSI's own warnings etc.)
+chars.clear(); uc.mem_write(STR, b'Low power:\x00'); call(DRAWSTR, (5, 0x40, STR, 0xF800), (0, 12, 1))
+assert all(c[3] & 0xFFFF == 0xF800 for c in chars), 'coloured text was changed'
+# IR codes '0x..' accent
+chars.clear(); uc.mem_write(STR, b'0x0908\x00'); call(DRAWSTR, (0x54, 0x32, STR, 0xFFFF), (0, 12, 0))
+assert all(c[3] & 0xFFFF == ACCENT for c in chars), '0x code not accent'
+print('PASS  colours: labels grey, values/units/ohm/0x accent, titles white, coloured text untouched')
 print('PASS  serial mirror: strings, integers, floats, ohm glyph; registers and stack preserved')

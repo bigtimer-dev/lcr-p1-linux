@@ -11,4 +11,5 @@ STOCK="$ROOT/fw/APP_LCR-P1-EN_V1.1.0_260324.BIN"; OUT="$ROOT/build/APP_LCR-P1-EN
 echo "== serial mirror"; "$PY" "$ROOT/firmware/test/emu_test.py" "$OUT"
 echo "== IR";            "$PY" "$ROOT/firmware/test/ir_test.py" "$STOCK" "$OUT" "$ROOT/build/patch.elf"
 echo "== commands";      "$PY" "$ROOT/firmware/test/control_test.py" "$OUT" "$ROOT/build/patch.elf"
+echo "== screen";        "$PY" "$ROOT/firmware/test/screen_test.py" "$OUT" "$ROOT/build/patch.elf"
 PYTHONPATH="$ROOT/app" python3 -m lcrp1 flash --check "$OUT"
