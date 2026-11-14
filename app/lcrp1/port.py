@@ -197,7 +197,7 @@ class Reader(threading.Thread):
                     self.fd = None
                 os.close(fd)
                 self.idle.set()
-            if not self._paused.is_set():
+            if not self._paused.is_set() and not self._stop.is_set():
                 self.on_status('Meter disconnected', False)
                 last_state = 'gone'
                 time.sleep(0.5)

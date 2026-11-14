@@ -27,7 +27,8 @@ Measurement code is untouched. The image is the same size as stock and the calib
 
 Tested on a real LCR-P1: resistors and capacitors read the same as with stock firmware; NEC (LG codes
 from a Google TV remote), Samsung TV and Gree-type AC remotes decode on the meter. Sony and RC5 are
-tested in the emulator only so far.
+tested in the emulator only so far. Serial commands tested on the meter: status, remote test, auto-repeat,
+auto power-off.
 
 ## Build the firmware
 
@@ -88,6 +89,11 @@ The Gree field names (mode, temperature, …) are a best guess from the Gree lay
 
 The patched firmware also listens on the USB serial port. A command is `#` + letter (+ number) + newline;
 the meter answers `#<letter> R=<repeat s> A=<auto-off s> P=<1 on the IR page>`.
+
+The meter's USART holds a single received byte and the firmware reads it once per main-loop pass, so send
+**one byte at a time**: the meter echoes each byte with bit 7 set (`byte | 0x80`), send the next one after
+that echo. `lcrp1`, `lcrp1 cmd` and `lcrp1-log --send` do this for you. Auto power-off counts idle time since
+the last key press or test, not since the command.
 
 | Command | |
 |---|---|
