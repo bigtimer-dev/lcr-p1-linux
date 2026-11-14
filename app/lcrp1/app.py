@@ -99,6 +99,7 @@ class Window(Adw.ApplicationWindow):
 
         self.toast = Adw.ToastOverlay(child=box)
         tv.set_content(self.toast)
+        tv.add_bottom_bar(self.build_controls())
         self.set_content(tv)
         self.connect('close-request', self.on_close)
 
@@ -111,6 +112,83 @@ class Window(Adw.ApplicationWindow):
         else:
             self.start_reader()
 
+    # ------------------------------------------------------------------ meter control
+    def build_controls(self):
+        """Bottom bar: test / repeat / auto power-off / power off (firmware with serial commands)."""
+        self._updating = False
+        self._pending = {}
+        bar = Gtk.Box(spacing=8, margin_top=8, margin_bottom=8, margin_start=12, margin_end=12)
+        self.test_btn = Gtk.Button(label='Test', css_classes=['suggested-action'],
+                                   tooltip_text='Run a test, as pressing TEST on the meter')
+        self.test_btn.connect('clicked', lambda *_: self.send('T'))
+        bar.append(self.test_btn)
+        bar.append(Gtk.Label(label='Repeat', margin_start=8))
+        self.rep = Gtk.SpinButton.new_with_range(0, 600, 1)
+        self.rep.set_tooltip_text('Test again this many seconds after the previous test finished (0 = off). '
+                                  'Insert parts one after another for hands-free logging.')
+        self.rep.connect('value-changed', lambda w: self.queue_send('R', int(w.get_value())))
+        bar.append(self.rep)
+        bar.append(Gtk.Label(label='s', css_classes=['dim-label']))
+        bar.append(Gtk.Box(hexpand=True))
+        bar.append(Gtk.Label(label='Auto-off'))
+        self.aoff = Gtk.SpinButton.new_with_range(0, 60, 1)
+        self.aoff.set_tooltip_text('Switch the meter off after this many idle minutes (0 = off; '
+                                   'the meter still switches off after 60 min). Resets to the '
+                                   'firmware default when the meter is switched on.')
+        self.aoff.connect('value-changed', lambda w: self.queue_send('A', int(w.get_value()) * 60))
+        bar.append(self.aoff)
+        bar.append(Gtk.Label(label='min', css_classes=['dim-label']))
+        self.off_btn = Gtk.Button(icon_name='system-shutdown-symbolic', tooltip_text='Switch the meter off',
+                                  css_classes=['destructive-action'], margin_start=8)
+        self.off_btn.connect('clicked', self.on_power_off)
+        bar.append(self.off_btn)
+        self.controls = (self.test_btn, self.rep, self.aoff, self.off_btn)
+        self.set_controls(False)
+        return bar
+
+    def set_controls(self, on):
+        for w in self.controls:
+            w.set_sensitive(on)
+
+    def send(self, cmd):
+        if not (self.reader and self.reader.send(cmd)):
+            self.toast.add_toast(Adw.Toast(title='Meter not connected'))
+
+    def queue_send(self, letter, value):
+        """Spin buttons: send once the value has settled for 0.4 s."""
+        if self._updating:
+            return
+        old = self._pending.pop(letter, None)
+        if old:
+            GLib.source_remove(old)
+
+        def fire():
+            self._pending.pop(letter, None)
+            self.send(f'{letter}{value}')
+            return False
+        self._pending[letter] = GLib.timeout_add(400, fire)
+
+    def on_control(self, r):
+        """Reply from the meter: '#<cmd> R=.. A=.. P=..'."""
+        self.set_controls(True)
+        self._updating = True
+        self.rep.set_value(r['repeat_s'])
+        self.aoff.set_value(round(r['autooff_s'] / 60))
+        self._updating = False
+        if r['cmd'] == 'T' and r['ir_page']:
+            self.toast.add_toast(Adw.Toast(title='The meter is on the IR page: switch to component test'))
+        elif r['cmd'] == 'O':
+            self.toast.add_toast(Adw.Toast(title='Meter switched off'))
+
+    def on_power_off(self, *_):
+        a = Adw.AlertDialog(heading='Switch the meter off?',
+                            body='Press TEST on the meter to switch it on again.')
+        a.add_response('cancel', 'Cancel')
+        a.add_response('off', 'Switch Off')
+        a.set_response_appearance('off', Adw.ResponseAppearance.DESTRUCTIVE)
+        a.connect('response', lambda _a, resp: resp == 'off' and self.send('O'))
+        a.present(self)
+
     # ------------------------------------------------------------------ link
     def start_reader(self):
         self.reader = Reader(lambda r: GLib.idle_add(self.add_record, r),
@@ -119,6 +197,10 @@ class Window(Adw.ApplicationWindow):
 
     def set_status(self, text, ok):
         self.title.set_subtitle(text)
+        if ok:     # ask the firmware for its settings; the reply enables the controls
+            GLib.timeout_add(300, lambda: (self.reader and self.reader.send('?')) and False)
+        else:
+            self.set_controls(False)
         return False
 
     def on_close(self, *_):
@@ -128,8 +210,13 @@ class Window(Adw.ApplicationWindow):
 
     # ------------------------------------------------------------------ records
     def add_record(self, r):
+        if r.get('event') == 'control':
+            self.on_control(r)
+            return False
         if 'event' in r:
             self.toast.add_toast(Adw.Toast(title=f"Meter started, firmware {r.get('version')}"))
+            if self.reader:
+                GLib.timeout_add(1500, lambda: self.reader.send('?') and False)
             return False
         if not r.get('time'):
             r['time'] = time.strftime('%Y-%m-%d %H:%M:%S')

@@ -3,6 +3,9 @@
 Usage:
   lcrp1-log [PORT] [--csv out.csv] [--jsonl out.jsonl] [--raw raw.txt]
   lcrp1-log --replay raw.txt        # parse a saved raw capture
+  lcrp1-log --send R3 --csv parts.csv   # test every 3 s after the previous test (hands-free sorting)
+Commands for --send (patched firmware with serial commands): T test, R<s> repeat every s seconds
+(R0 off), A<s> auto power-off after s seconds (A0 off), O power off, ? status.
 PORT defaults to the meter's CH340, found automatically (and re-found after power cycles).
 """
 import argparse
@@ -24,6 +27,8 @@ def main(argv=None):
     ap.add_argument('--jsonl')
     ap.add_argument('--raw')
     ap.add_argument('--replay', help='parse a saved raw capture instead of the port')
+    ap.add_argument('--send', action='append', default=[], metavar='CMD',
+                    help='send a command once connected (repeatable)')
     a = ap.parse_args(argv)
 
     csvw = cf = None
@@ -67,7 +72,13 @@ def main(argv=None):
             rawf.write(data)
             rawf.flush()
 
-    rd = Reader(emit, lambda text, ok: print('#', text, file=sys.stderr, flush=True), raw, a.port)
+    def status(text, ok):
+        print('#', text, file=sys.stderr, flush=True)
+        if ok:
+            for c in a.send:        # also re-sent after the meter was switched off and on
+                rd.send(c)
+
+    rd = Reader(emit, status, raw, a.port)
     rd.start()
     try:
         while rd.is_alive():
@@ -80,3 +91,40 @@ def main(argv=None):
 
 if __name__ == '__main__':
     sys.exit(main())
+
+
+def cmd_main(argv=None):
+    """lcrp1 cmd CMD...: send commands to the meter and print its replies (T, R<s>, A<s>, O, ?)."""
+    import time
+    from .port import find_port, open_port
+    import select as _select
+    argv = list(sys.argv[2:] if argv is None else argv)
+    if not argv:
+        print(cmd_main.__doc__)
+        return 2
+    dev = find_port()
+    if not dev:
+        print('Meter not found (switch it on, USB connected).', file=sys.stderr)
+        return 1
+    fd = open_port(dev)
+    got, buf = [], b''
+    p = Parser(lambda r: got.append(r) if r.get('event') == 'control' else None)
+    try:
+        for c in argv:
+            n = len(got)
+            os.write(fd, f'#{c}\n'.encode())
+            end = time.time() + 5          # a running test delays the answer
+            while len(got) == n and time.time() < end:
+                if _select.select([fd], [], [], 0.2)[0]:
+                    buf += os.read(fd, 512)
+                    *lines, rest = buf.split(b'\n')
+                    buf = rest
+                    for ln in lines:
+                        p.line(ln.decode('latin-1'))
+            if len(got) == n:
+                print(f'#{c}: no answer (firmware without serial commands?)', file=sys.stderr)
+                return 1
+            print(fmt(got[-1]))
+    finally:
+        os.close(fd)
+    return 0

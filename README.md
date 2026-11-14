@@ -19,7 +19,8 @@ patches that exact file.
 | IR decoding | NEC only (32 bits, 68 edges max) | NEC, Samsung32, Sony SIRC 12/15/20, Philips RC5/RC5X, Gree/Kelvinator AC |
 | AC remotes | first 4 bytes, as if NEC | first 4 bytes on screen + `Long code - see PC`; all 8 bytes over USB |
 | Unknown remotes | nothing | raw mark/space timings over USB (`IR raw <n>: …`), up to 760 edges |
-| Auto power-off | 60 s | 5 min (`AUTOOFF_S`, 30 s – 60 min) |
+| Auto power-off | 60 s | 5 min (`AUTOOFF_S`), changeable from the PC: off … 60 min |
+| PC control | none | run a test, auto-repeat tests, auto power-off, power off (USB serial commands) |
 | Low-battery shutdown | ~3.5 V | 3.4 V (`LOWBAT_MV`, 3.3 – 3.6 V) |
 
 Measurement code is untouched. The image is the same size as stock and the calibration is kept.
@@ -69,6 +70,7 @@ Your user needs access to the serial port (`uucp` group on Arch, `dialout` on De
 
 - Finds the meter's CH340 by itself and reconnects when the meter is switched off and on.
 - Latest result in large type (`360.6 Ω`, `988.0 kΩ`, IR codes, full AC code), history, CSV export.
+- Bottom bar: **Test**, **Repeat** every n s, **Auto-off** after n min, **power off**.
 - *Update Firmware…* checks the file, then flashes with a progress bar.
 - `lcrp1 --replay capture.txt` shows a saved raw capture without a meter.
 
@@ -81,6 +83,23 @@ Your user needs access to the serial port (`uucp` group on Arch, `dialout` on De
 ```
 
 The Gree field names (mode, temperature, …) are a best guess from the Gree layout; the bytes are exact.
+
+## Serial commands
+
+The patched firmware also listens on the USB serial port. A command is `#` + letter (+ number) + newline;
+the meter answers `#<letter> R=<repeat s> A=<auto-off s> P=<1 on the IR page>`.
+
+| Command | |
+|---|---|
+| `#T` | run a test, exactly as pressing TEST (ignored on the IR page, like the button) |
+| `#R<s>` | test again `s` seconds after the previous test finished; `#R0` off. A real key press restarts the wait |
+| `#A<s>` | auto power-off after `s` idle seconds; `#A0` off (the meter still switches off after 60 min) |
+| `#O` | switch off now |
+| `#?` | status |
+
+Settings are kept until the meter is switched off. From the shell: `lcrp1 cmd T`, `lcrp1 cmd R3 A0`, or
+log hands-free: `lcrp1-log --send R3 --csv parts.csv` and insert parts one after another. The app has the same
+controls in its bottom bar.
 
 ## How it works
 

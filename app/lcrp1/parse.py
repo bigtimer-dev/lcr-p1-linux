@@ -39,6 +39,11 @@ class Parser:
         ln = re.sub(r'=+Check Pin=+', '', ln).strip()
         if not ln or re.fullmatch(r'K A A(?: [123]){4}', ln) or re.fullmatch(r'\d, \d, \d', ln):
             return
+        m = re.fullmatch(r'#([A-Z?!]) R=(\d+) A=(\d+) P=(\d)', ln)
+        if m:                                       # reply to a serial command (patch v1.1.0u)
+            self.emit({'event': 'control', 'cmd': m.group(1), 'repeat_s': int(m.group(2)),
+                       'autooff_s': int(m.group(3)), 'ir_page': m.group(4) == '1'})
+            return
         m = re.fullmatch(r'AC Gree((?: [0-9A-F]{2}){8})(?: fan \d)?', ln)
         if m:   # Gree/Kelvinator AC message 1 (patch v1.1.0u); field meanings are a best guess (Gree layout)
             by = [int(x, 16) for x in m.group(1).split()]
@@ -106,6 +111,10 @@ class Parser:
 
 
 def fmt(r):
+    if r.get('event') == 'control':
+        a = f"{r['autooff_s']} s" if r['autooff_s'] else 'off'
+        rep = f"every {r['repeat_s']} s" if r['repeat_s'] else 'off'
+        return f"# meter: repeat {rep}, auto power-off {a}" + ('  (IR page)' if r['ir_page'] else '')
     if 'event' in r:
         return f"# meter booted, firmware {r.get('version')}"
     f = '  '.join(f'{k}={v}' for k, v in r['fields'].items() if k != 'extra')

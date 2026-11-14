@@ -61,6 +61,21 @@ class Reader(threading.Thread):
         self._paused = threading.Event()
         self.idle = threading.Event()           # set while the port is closed (for flashing)
         self.idle.set()
+        self.fd = None
+        self._wlock = threading.Lock()
+
+    def send(self, cmd):
+        """Send a command line to the meter, e.g. 'T', 'R5', 'A300', 'O', '?'. Patched firmware
+        with serial commands answers with a '#<cmd> R=.. A=.. P=..' line. Returns False when
+        not connected."""
+        with self._wlock:
+            if self.fd is None:
+                return False
+            try:
+                os.write(self.fd, f'#{cmd}\n'.encode())
+                return True
+            except OSError:
+                return False
 
     def stop(self):
         self._stop.set()
@@ -99,6 +114,8 @@ class Reader(threading.Thread):
                 time.sleep(1.0)
                 continue
             self.idle.clear()
+            with self._wlock:
+                self.fd = fd
             self.on_status(f'Connected on {dev}', True)
             last_state = 'conn'
             buf, last = '', time.time()
@@ -128,6 +145,8 @@ class Reader(threading.Thread):
             finally:
                 parser.line(buf)
                 parser.flush()
+                with self._wlock:
+                    self.fd = None
                 os.close(fd)
                 self.idle.set()
             if not self._paused.is_set():

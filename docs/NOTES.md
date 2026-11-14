@@ -54,11 +54,15 @@ a broken application can always be replaced.
 | IR decoder | BL at 0x0800BBAA (main loop → stock NEC decoder) | → `ir_poll` |
 | IR capture | vector IRQ8 (EXTI line 11), image offset 0x60 | → `ir_edge_isr`: 760-edge buffer at 0x20001900 instead of 68 |
 | IR frame end | TIM period literal 0x08004A24 | 15 ms → 50 ms of quiet (AC remotes have 20/40 ms gaps); gaps > 12 ms split a capture into segments |
-| auto power-off | literal 0x0800615C | 12000 → `AUTOOFF_S × 200` |
+| auto power-off | literal 0x0800615C | 12000 → 720000 (60 min hard limit); the limit itself is applied by `key_hook` (`AUTOOFF_S` at power-on, `#A` over USB) |
+| serial commands | BL at 0x0800B964 (main loop → key-queue read 0x080051E0) | → `key_hook` (`control.c`): real key, else USART commands; returns TEST (0x21) for `#T` / auto-repeat |
+| USART1 receive | 0x08008F5C, 0x08008F80 in the USART init | pins 0x200 → 0x600 (PA9 + PA10, unused by the firmware), mode TX → TX\|RX |
 | low battery | literal 0x0800BCE0 | 3300 → `LOWBAT_MV − 200` |
 
 Code space (the image is full):
 
+- A also starts in the ASCII font: glyphs `{|}~`, and E (`XYZ[\\]^`) and F (`;<=>?@`) are font glyphs no
+  string ever draws; the build checks every reused glyph is in that set.
 - A, B: unused slots of the GBK glyph table at 0x0800F48E (58 × 26 bytes; only entry 33, ohm, is used).
   The lookup scans every key, so the build checks no other entry starts with `c5 b7`.
 - C, D: the stock NEC decoder (0x08004848–0x08004978) and stock IR edge ISR (0x08003C4C–0x08003CB0),
@@ -72,6 +76,12 @@ Code space (the image is full):
   them removed, a 1 MΩ resistor read as 2 pF: the delay is de-facto settling time.
 - RAM is not cleared at boot above the firmware's own data: the IR buffer is only trusted after a
   marker word written when capture is armed.
+
+## Keys
+
+The key scanner (timer ISR) queues `(bit + 2) × 10 + event`: event 3 short press, 7 held 1 s, 8 released after
+holding, 5 two keys. TEST = bit 1: `0x21` short (starts a test), `0x25` held (power off). ZENER = bit 2 (`0x2B`).
+The main loop reads the queue at 0x0800B964 (`0x080051E0`).
 
 ## IR formats seen
 
