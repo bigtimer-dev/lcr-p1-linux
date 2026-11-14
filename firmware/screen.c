@@ -1,9 +1,8 @@
 /* LCR-P1 v1.1.0 patch: screen look.
  *
- * splash()     replaces the boot logo (FNIRSI bitmap, 222 bytes at 0x0800EECA, drawn once by the
- *              splash at 0x0800DE50): "LCR-P1" at 3x size in the accent colour, drawn from the
- *              firmware's own 6x12 font with one 3x3 fill per pixel. The freed bitmap bytes hold
- *              this code.
+ * The boot logo itself is data: make_patch.py writes a 32x32 skull (art/skull.py) over the
+ * FNIRSI bitmap and recolours / recentres it; the rest of the old bitmap holds pixel_hook.
+ * pixel_hook() replaces every call of lcd_write_pixel: see remap().
  * color_char() called by the draw hooks (uart_mirror.S) for every character and the ohm glyph;
  *              recolours white text only (the firmware's own colours stay):
  *                values (number routines, units, 0x.. codes, ohm) -> accent
@@ -12,24 +11,36 @@
  */
 #include <stdint.h>
 
-#define ACCENT  0x5DDF          /* #5CB8FF, the meter's bezel blue */
-#define LABEL   0x9D16          /* #9AA3B2 */
+#define ACCENT  0xB47F          /* #B48CFF purple */
+#define LABEL   0x8C33          /* #8E879E purple-grey */
+#define DIM     0x4A2A          /* #4B4655 dim grey for lines and leads */
 #define WHITE   0xFFFF
 #define FONT    ((const uint8_t *)0x0800F01A)   /* 12 bytes per char from ' ', bit 0 = left pixel */
-typedef void (*fill_t)(int, int, int, int, int);
-#define FILL ((fill_t)0x08005741)      /* (x0, y0, x1, y1 exclusive, colour) */
-#define SCALE 3
+typedef void (*pixel_t)(uint32_t);
+#define PIXEL ((pixel_t)0x08006061)    /* lcd_write_pixel(colour): the sink of text, lines, bitmaps */
 
-void splash(void)
+/* Minimal palette for everything drawn pixel by pixel (component symbols, icons, IR bars, text):
+   black / white / our two text colours stay, reds stay (warnings), greys -> DIM, any other
+   colour -> ACCENT. Idempotent, so already-mapped colours pass unchanged. */
+static uint32_t remap(uint32_t c)
 {
-    const char *t = "LCR-P1";          /* 6 chars x 6 px x 3 = 108 px wide, 36 px high */
-    for (int x = (128 - 108) / 2; *t; t++, x += 6 * SCALE) {
-        const uint8_t *g = FONT + (*t - ' ') * 12;
-        for (int y = 0x38 - 9; y < 0x38 - 9 + 12 * SCALE; y += SCALE, g++)
-            for (unsigned row = *g, xx = x; row; row >>= 1, xx += SCALE)
-                if (row & 1)
-                    FILL(xx, y, xx + SCALE, y + SCALE, ACCENT);
-    }
+    c &= 0xFFFF;
+    if (c == 0 || c == WHITE || c == ACCENT || c == LABEL)
+        return c;
+    unsigned r = c >> 11, g = c >> 6 & 31, b = c & 31;
+    unsigned hi = r > g ? r : g, lo = r < g ? r : g;
+    hi = b > hi ? b : hi;
+    lo = b < lo ? b : lo;
+    if (hi - lo < 5)
+        return DIM;
+    if (r >= 20 && g < 10 && b < 10)
+        return c;
+    return ACCENT;
+}
+
+void pixel_hook(uint32_t c)
+{
+    PIXEL(remap(c));
 }
 
 /* f = the hook's saved frame: r0 x, r1 y, r2 char, r3 colour, r4, lr (return into the draw routine).

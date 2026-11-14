@@ -6,18 +6,19 @@
    D  stock IR edge ISR, dead once its vector is redirected:       0x08003C4C..0x08003CB0
    E  font glyphs 'XYZ[\]^' (never drawn):                       0x0800F2BC..0x0800F30E
    F  font glyphs ';<=>?@' (never drawn):                        0x0800F160..0x0800F1A6
-   G  the FNIRSI boot logo bitmap (replaced by screen.c: splash): 0x0800EECC..0x0800EFA8
-   C and D are only written when the IR patch is on (make_patch.py). */
+   G  rest of the FNIRSI boot logo bitmap after the 134-byte boot picture: 0x0800EF50..0x0800EFA8
+   */
 SECTIONS {
   .patchA 0x0800F454 : {
     uart_mirror.o(.text)
     control.o(.text.key_hook)
-    ir_decode.o(.text.rc5* .text.sony* .text.ir_edge_isr)
+    ir_decode.o(.text.sony* .text.ir_edge_isr)
+    screen.o(.text.pixel_hook .text.remap*)
   }
   ASSERT(. <= 0x0800F7E8, "region A overflow")
-  .patchB 0x0800F804 : { ir_decode.o(.text.ir_poll) control.o(.rodata*) }
+  .patchB 0x0800F804 : { ir_decode.o(.text.ir_poll .text.ac_print) control.o(.rodata*) ir_decode.o(.rodata.ac_print*) }
   ASSERT(. <= 0x0800FA72, "region B overflow")
-  .patchC 0x08004848 : { ir_decode.o(.text.gree* .text.pulse_distance* .text.ac_print .rodata.ac_print*) }
+  .patchC 0x08004848 : { ir_decode.o(.text.gree*) screen.o(.text.color_char) }
   ASSERT(. <= 0x08004978, "region C overflow")
   .patchD 0x08003C4C : { ir_decode.o(.text.pd_bits*) }
   ASSERT(. <= 0x08003CB0, "region D overflow")
@@ -25,7 +26,7 @@ SECTIONS {
   ASSERT(. <= 0x0800F30E, "region E overflow")
   .patchF 0x0800F160 : { ir_decode.o(.text.rearm) }
   ASSERT(. <= 0x0800F1A6, "region F overflow")
-  .patchG 0x0800EECC : { screen.o(.text.splash .text.color_char .rodata*) }
+  .patchG 0x0800EF50 : { ir_decode.o(.text.pulse_distance*) screen.o(.rodata*) }
   ASSERT(. <= 0x0800EFA8, "region G overflow")
   .putc 0x0800B2DC (NOLOAD) : { *(.putc) }
   .empty 0 (NOLOAD) : { *(.text) *(.data) *(.bss) *(COMMON) }

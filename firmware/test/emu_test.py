@@ -46,7 +46,7 @@ print('UART  :', repr(bytes(out).decode()))
 assert bytes(out).decode() == '\nCap: 4712ohm\nResistance', 'mirror output wrong'
 assert ''.join(c[2] for c in chars) == 'Cap:4712Resistance' and len(glyphs) == 1, 'draw calls not passed through'
 print('chars :', ''.join(c[2] for c in chars), '| first', chars[0], '| uint first', chars[4])
-ACCENT, LABEL, WHITE = 0x5DDF, 0x9D16, 0xFFFF
+ACCENT, LABEL, WHITE = 0xB47F, 0x8C33, 0xFFFF
 col = {c[2] + str(i): c[3] & 0xFFFF for i, c in enumerate(chars)}
 assert all(c[3] & 0xFFFF == LABEL for c in chars[0:4]), 'label "Cap:" not grey'
 assert all(c[3] & 0xFFFF == ACCENT for c in chars[4:8]), 'number not accent'

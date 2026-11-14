@@ -16,18 +16,19 @@ patches that exact file.
 | | Stock v1.1.0 | Patched (v1.1.0u) |
 |---|---|---|
 | USB serial output | none | every line drawn on the screen (115200 8N1) |
-| IR decoding | NEC only (32 bits, 68 edges max) | NEC, Samsung32, Sony SIRC 12/15/20, Philips RC5/RC5X, Gree/Kelvinator AC |
+| IR decoding | NEC only (32 bits, 68 edges max) | NEC, Samsung32, Sony SIRC 12/15/20, Gree/Kelvinator AC |
 | AC remotes | first 4 bytes, as if NEC | first 4 bytes on screen + `Long code - see PC`; all 8 bytes over USB |
 | Unknown remotes | nothing | raw mark/space timings over USB (`IR raw <n>: …`), up to 760 edges |
 | Auto power-off | 60 s | 5 min (`AUTOOFF_S`), changeable from the PC: off … 60 min |
+| Screen | white text, FNIRSI boot logo | minimal purple theme: values purple, labels grey, symbols/icons purple, boot picture (skull or horned mask) |
 | PC control | none | run a test, auto-repeat tests, auto power-off, power off (USB serial commands) |
 | Low-battery shutdown | ~3.5 V | 3.4 V (`LOWBAT_MV`, 3.3 – 3.6 V) |
 
 Measurement code is untouched. The image is the same size as stock and the calibration is kept.
 
 Tested on a real LCR-P1: resistors and capacitors read the same as with stock firmware; NEC (LG codes
-from a Google TV remote), Samsung TV and Gree-type AC remotes decode on the meter. Sony and RC5 are
-tested in the emulator only so far. Serial commands tested on the meter: status, remote test, auto-repeat,
+from a Google TV remote), Samsung TV and Gree-type AC remotes decode on the meter. Sony is tested in
+the emulator only so far. Serial commands tested on the meter: status, remote test, auto-repeat,
 auto power-off.
 
 ## Build the firmware
@@ -39,7 +40,7 @@ Needs `arm-none-eabi-gcc` / binutils and Python 3.
    ```sh
    python3 firmware/make_patch.py            # -> build/APP_LCR-P1-EN_V1.1.0u.BIN
    AUTOOFF_S=600 LOWBAT_MV=3500 python3 firmware/make_patch.py   # other settings
-   NO_IR=1 python3 firmware/make_patch.py    # serial output + settings, stock IR
+   BOOT_ART=mask python3 firmware/make_patch.py   # other boot picture (firmware/art/*.py)
    ```
    The build checks the stock file's SHA-256 and every patched location before changing it.
 3. Optional, run the emulator tests (they drive the patched code with real IR recordings):

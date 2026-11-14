@@ -7,7 +7,7 @@ Output: build/APP_LCR-P1-EN_V1.1.0u.BIN (same size as stock). Options (environme
     AUTOOFF_S=300    auto power-off after N s idle at power-on (stock 60, allowed 30..3600;
                      changeable over USB with #A<s>)
     LOWBAT_MV=3400   low-battery shutdown, value as shown on the battery screen (stock ~3500)
-    NO_IR=1          serial mirror, commands + settings only, stock IR decoding
+    BOOT_ART=skull   boot picture, from firmware/art/<name>.py
 
 Every patched location is checked against the stock bytes first; anything unexpected stops
 the build. Needs arm-none-eabi-gcc / binutils.
@@ -23,8 +23,7 @@ ROOT = os.path.dirname(HERE)
 BUILD = os.path.join(ROOT, 'build')
 STOCK = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'fw', 'APP_LCR-P1-EN_V1.1.0_260324.BIN')
 STOCK_SHA256 = '5ccce71cec5798e9a88befe5b29613f2c38cd3f10fca85a0e64c5bed4ded85a5'
-NO_IR = os.environ.get('NO_IR') == '1'
-OUT = os.path.join(BUILD, 'APP_LCR-P1-EN_V1.1.0u_noir.BIN' if NO_IR else 'APP_LCR-P1-EN_V1.1.0u.BIN')
+OUT = os.path.join(BUILD, 'APP_LCR-P1-EN_V1.1.0u.BIN')
 if os.environ.get('PIN_DEBUG') == '1':
     OUT = OUT.replace('.BIN', '_pindebug.BIN')
 
@@ -140,16 +139,39 @@ for a, old_b, new_b in ((0x08008F5C, b'\x01\x21', b'\x03\x21'),   # movs r1,#1 -
 assert img[o(KEY_SITE):o(KEY_SITE) + 4] == bl(KEY_SITE, KEYSCAN)
 img[o(KEY_SITE):o(KEY_SITE) + 4] = bl(KEY_SITE, sym(elf, 'key_hook'))
 
-# Boot splash: the FNIRSI logo (1-bit bitmap, 93x18, 222 bytes at 0x0800EECA; its only use is the
-# BL at 0x0800DE62 in the splash routine) is replaced by screen.c: splash ("LCR-P1" from the font);
-# the bitmap bytes become region G.
-LOGO, LOGO_LEN, SPLASH_SITE, STOCK_BITMAP = 0x0800EECA, 222, 0x0800DE62, 0x08005680
+# Boot screen: the FNIRSI logo (1-bit bitmap, 93x18, 222 bytes at 0x0800EECA; only used by the
+# splash routine 0x0800DE50) is overwritten with a 32x32 picture (art/<BOOT_ART>.py), drawn by the
+# stock code in the accent colour and centred. The version line loses its "--- V:" / " ---"
+# decoration and is centred in grey. The rest of the old bitmap becomes region G.
+sys.path.insert(0, os.path.join(HERE, 'art'))
+art = __import__(os.environ.get('BOOT_ART', 'skull')).bitmap()
+LOGO, LOGO_LEN = 0x0800EECA, 222
 assert hashlib.sha256(stock[o(LOGO):o(LOGO) + LOGO_LEN]).hexdigest()[:16] == 'f4772a4a91733ff4', 'logo not stock'
-assert img[o(SPLASH_SITE):o(SPLASH_SITE) + 4] == bl(SPLASH_SITE, STOCK_BITMAP)
-img[o(SPLASH_SITE):o(SPLASH_SITE) + 4] = bl(SPLASH_SITE, sym(elf, 'splash'))
+assert struct.unpack_from('<I', img, o(0x0800DEBC))[0] == LOGO and len(art) <= 0x0800EF50 - LOGO
+img[o(LOGO):o(LOGO) + len(art)] = art
+W, H = art[2], art[4]
+for a, old_b, new_b in (
+        (0x0800DE5A, b'\x38\x22', bytes([40, 0x22])),                  # movs r2,#56 -> y 40
+        (0x0800DE5C, b'\x13\x21', bytes([(128 - W) // 2, 0x21])),      # movs r1,#19 -> x centred
+        (0x0800DE84, b'\x37\x20', bytes([(128 - 5 * 6) // 2, 0x20])),  # "1.1.0" x 55 -> centred
+        (0x0800DEC4, b'-', b'\x00'),                                     # "--- V:" -> ""
+        (0x0800DED4, b' ', b'\x00')):                                    # " ---"   -> ""
+    assert img[o(a):o(a) + len(old_b)] == old_b, hex(a)
+    img[o(a):o(a) + len(new_b)] = new_b
+for a, old_v, new_v in ((0x0800DEB8, 0x04DB, 0xB47F),                     # picture colour -> accent
+                        (0x0800DEC0, 0xFFFF, 0x8C33)):                    # version text -> label grey
+    assert struct.unpack_from('<I', img, o(a))[0] == old_v, hex(a)
+    struct.pack_into('<I', img, o(a), new_v)
 G_AT = section_addr(elf, '.patchG')
-assert LOGO <= G_AT and G_AT + len(code['G']) <= LOGO + LOGO_LEN
+assert G_AT >= LOGO + len(art) and G_AT + len(code['G']) <= LOGO + LOGO_LEN
 img[o(G_AT):o(G_AT) + len(code['G'])] = code['G']
+
+# Every lcd_write_pixel call (text, lines, bitmaps) goes through screen.c: pixel_hook (colour remap).
+PIXEL = 0x08006060
+PIXEL_SITES = [a for a in range(BASE, BASE + len(img) - 4, 2) if img[o(a):o(a) + 4] == bl(a, PIXEL)]
+assert len(PIXEL_SITES) == 12, PIXEL_SITES
+for a in PIXEL_SITES:
+    img[o(a):o(a) + 4] = bl(a, sym(elf, 'pixel_hook'))
 
 # Serial mirror: every draw_char / glyph call goes through the hooks in uart_mirror.S.
 for s in CHAR_SITES:
@@ -162,11 +184,11 @@ for s in GLYPH_SITES:
 # the ~4 ms each takes on the UART is settling time in the pin probe. Without them a 1 Mohm
 # resistor was measured as 2 pF.
 img[o(CODE_AT):o(CODE_AT) + len(code['A'])] = code['A']
-for r in 'BEF':     # B holds the command strings, E/F IR helpers (unused without the IR patch)
+for r in 'BEF':
     a = section_addr(elf, f'.patch{r}')
     img[o(a):o(a) + len(code[r])] = code[r]
 
-if not NO_IR:
+if True:   # IR patch
     assert img[o(IR_SITE):o(IR_SITE) + 4] == bl(IR_SITE, IR_STOCK)
     img[o(IR_SITE):o(IR_SITE) + 4] = bl(IR_SITE, IR_POLL)
     # our IR edge ISR on vector IRQ8 (EXTI11)
@@ -193,7 +215,7 @@ assert len(img) == len(stock)
 
 open(OUT, 'wb').write(img)
 print(f'wrote {os.path.relpath(OUT, ROOT)}  sha256 {hashlib.sha256(img).hexdigest()[:16]}')
-print(f'  auto power-off {AUTOOFF_S} s at power-on (60 min hard limit), low-battery cutoff {LOWBAT_MV} mV, IR patch {"off" if NO_IR else "on"}')
+print(f'  auto power-off {AUTOOFF_S} s at power-on (60 min hard limit), low-battery cutoff {LOWBAT_MV} mV')
 print(f'  code: A {len(code["A"])}/{FREE_END - CODE_AT}  B {len(code["B"])}/{B_END - CODEB_AT}  '
       f'C {len(code["C"])}/304  D {len(code["D"])}/100  E {len(code["E"])}/82  F {len(code["F"])}/70  '
-      f'G {len(code["G"])}/220 bytes')
+      f'G {len(code["G"])}/88 bytes')

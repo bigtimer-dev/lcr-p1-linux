@@ -12,7 +12,7 @@
  *    (~20-40 ms) are kept in one capture. Gaps > 12 ms split a capture into segments.
  *  - ir_poll (main-loop call) decodes Gree/Kelvinator AC frames (screen: bytes 0-3 +
  *    "Long code - see PC"; UART: "AC Gree <8 bytes>"), else the first segment as NEC / Samsung32 / Sony
- *    12/15/20 / RC5 and shows it on the stock IR page (bytes at 0x20000890) with a
+ *    12/15/20 and shows it on the stock IR page (bytes at 0x20000890) with a
  *    protocol label; anything else is dumped to the UART as "IR raw <n>: <us> ...".
  */
 #include <stdint.h>
@@ -130,38 +130,6 @@ __attribute__((noinline)) static int sony(const volatile uint16_t *b, int s, int
     return nb;
 }
 
-/* Philips RC5: Manchester, 889 us half bits, 14 bits MSB first, '1' = space->mark.
- * The first edge is the middle of start bit 1, so half 0 is an implicit space. */
-__attribute__((noinline)) static int rc5(const volatile uint16_t *b, int s, int n, uint32_t *v)
-{
-    uint32_t h = 0;
-    int pos = 1, lvl = 1;
-    for (int i = s; i < n; i++, lvl ^= 1) {
-        unsigned d = b[i];
-        int k = in(d, 444, 1333) ? 1 : in(d, 1334, 2222) ? 2 : 0;
-        if (!k || pos + k > 28)
-            return 0;
-        while (k--) {
-            if (lvl)
-                h |= 1u << pos;
-            pos++;
-        }
-    }
-    if (pos < 27)
-        return 0;
-    uint32_t x = 0;
-    for (int i = 0; i < 14; i++) {
-        int a = (h >> (2 * i)) & 1, c = (h >> (2 * i + 1)) & 1;
-        if (a == c)
-            return 0;
-        x = (x << 1) | c;
-    }
-    if (!(x & 0x2000))
-        return 0;
-    *v = x;
-    return 1;
-}
-
 /* UART line with the full 8-byte AC code (message 1). */
 __attribute__((noinline)) static void ac_print(const uint8_t *ac)
 {
@@ -222,11 +190,6 @@ void ir_poll(void)
                 o[0] = addr >> 8; o[1] = addr; o[3] = v & 0x7f;
                 name = nb == 12 ? "Sony12" : nb == 15 ? "Sony15" : "Sony20";
             }
-        } else if (n <= 30 && rc5(b, s, n, &v)) {
-            o[0] = (v >> 11) & 1;
-            o[1] = (v >> 6) & 0x1f;
-            o[3] = (v & 0x3f) | ((~v >> 6) & 0x40);
-            name = "RC5";
         }
     }
     if (!name || (total > 100 && !is_ac)) {
