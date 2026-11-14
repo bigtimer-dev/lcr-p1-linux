@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=LCR-P1 Component Tester
+GenericName=Component Tester
+Comment=Live readings, history and firmware update for the FNIRSI LCR-P1 (serial-output firmware)
+Exec=@BIN@
+Icon=io.github.bigtimer_dev.LcrP1
+Terminal=false
+Categories=Electronics;Engineering;Utility;
+Keywords=LCR;component;tester;FNIRSI;IR;
+StartupWMClass=io.github.bigtimer_dev.LcrP1

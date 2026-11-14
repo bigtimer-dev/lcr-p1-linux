@@ -1,0 +1,118 @@
+
+--- V:1.1.0 ---
+Calibration page
+
+Waiting
+1 2 3 1 2 3 2
+K A A 1 2 3 3
+Infrared Decoding
+IR raw 17: 368 11799 217 28309 91 13320 111 19015 252 3985 143 153 190 150 85 33263 401
+
+AC Gree 01 08 20 50 00 C0 00 F0 fan 0
+
+Infrared Decoding
+Address Code
+Command Code
+0x0108
+0x2050
+AC off  
+AC Gree 09 08 60 50 00 C0 00 70 fan 0
+
+0x0908
+0x6050
+24C Cool
+AC Gree 09 09 60 50 00 C0 00 80 fan 0
+
+0x0909
+0x6050
+25C Cool
+AC Gree 09 08 60 50 00 C0 00 70 fan 0
+
+0x0908
+0x6050
+24C Cool
+AC Gree 09 07 60 50 00 C0 00 60 fan 0
+
+0x0907
+0x6050
+23C Cool
+AC Gree 01 07 20 50 00 C0 00 E0 fan 0
+
+0x0107
+0x2050
+AC off  
+AC Gree 09 07 60 50 00 C0 00 60 fan 0
+
+0x0907
+0x6050
+23C Cool
+AC Gree 1A 09 60 50 00 C0 00 90 fan 1
+
+0x1A09
+0x6050
+25C Dry 
+AC Gree 0B 09 60 50 00 C0 00 A0 fan 0
+
+0x0B09
+0x6050
+25C Fan 
+AC Gree 0C 0C 60 50 00 C0 00 E8 fan 0
+
+0x0C0C
+0x6050
+28C Heat
+AC Gree 0E 08 60 50 00 C0 00 C0 fan 0
+
+0x0E08
+0x6050
+24C M6  
+AC Gree 09 07 60 50 00 C0 00 60 fan 0
+
+0x0907
+0x6050
+23C Cool
+AC Gree 1A 09 60 50 00 C0 00 90 fan 1
+
+0x1A09
+0x6050
+25C Dry 
+AC Gree 0B 09 60 50 00 C0 00 A0 fan 0
+
+0x0B09
+0x6050
+25C Fan 
+AC Gree 0C 0C 60 50 00 C0 00 E8 fan 0
+
+0x0C0C
+0x6050
+28C Heat
+AC Gree 0E 08 60 50 00 C0 00 C0 fan 0
+
+0x0E08
+0x6050
+24C M6  
+AC Gree 09 07 60 50 00 C0 00 60 fan 0
+
+0x0907
+0x6050
+23C Cool
+AC Gree 49 07 60 50 10 C0 00 70 fan 0
+
+0x4907
+0x6050
+23C Cool
+AC Gree 09 07 60 50 00 C0 00 60 fan 0
+
+0x0907
+0x6050
+23C Cool
+AC Gree 49 07 60 50 01 C0 00 60 fan 0
+
+0x4907
+0x6050
+23C Cool
+AC Gree 09 07 60 50 00 C0 00 60 fan 0
+
+0x0907
+0x6050
+23C Cool
