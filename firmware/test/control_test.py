@@ -9,7 +9,7 @@ from unicorn.arm_const import (UC_ARM_REG_LR, UC_ARM_REG_PC, UC_ARM_REG_R0, UC_A
                                UC_ARM_REG_R3, UC_ARM_REG_R4, UC_ARM_REG_R5, UC_ARM_REG_R6, UC_ARM_REG_R7,
                                UC_ARM_REG_SP)
 
-BASE, KEYSCAN, PRINTF = 0x08001800, 0x080051E0, 0x08008FA4
+BASE, KEYSCAN, PRINTF, PUTC = 0x08001800, 0x080051E0, 0x08008FA4, 0x0800B2DC
 U_STS, U_DAT = 0x40013800, 0x40013804
 TICKS, IDLE, PWROFF, IRF = 0x200006F4, 0x200006F0, 0x200006ED, 0x20000802
 img = open(sys.argv[1], 'rb').read()
@@ -31,11 +31,13 @@ uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)
 uc.mem_map(0x08000000, 0x10000); uc.mem_write(BASE, img)
 uc.mem_map(0x20000000, 0x2000); uc.mem_map(0x40000000, 0x20000)
 uc.mem_write(0x20001F04, bytes(range(7, 7 + 28)))           # power-on garbage
-rx, out, key = [], [], [0]
+dr, out, key, echo = [None], [], [0], []   # dr: the USART's single receive register
 
 def on_code(uc, a, sz, _):
     if a == KEYSCAN:
         uc.reg_write(UC_ARM_REG_R0, key[0]); key[0] = 0
+    elif a == PUTC:
+        echo.append(uc.reg_read(UC_ARM_REG_R0) & 0xFF)
     elif a == PRINTF:
         r = [uc.reg_read(x) for x in (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2, UC_ARM_REG_R3)]
         sp = uc.reg_read(UC_ARM_REG_SP)
@@ -48,21 +50,24 @@ def on_code(uc, a, sz, _):
     else:
         return
     uc.reg_write(UC_ARM_REG_PC, uc.reg_read(UC_ARM_REG_LR))
-for a in (KEYSCAN, PRINTF):
+for a in (KEYSCAN, PRINTF, PUTC):
     uc.hook_add(UC_HOOK_CODE, on_code, begin=a, end=a)
 
 def on_read(uc, access, a, size, value, _):
     if a == U_STS:
-        uc.mem_write(U_STS, struct.pack('<H', 0x20 if rx else 0xC0))
+        uc.mem_write(U_STS, struct.pack('<H', 0xE0 if dr[0] is not None else 0xC0))
     elif a == U_DAT:
-        uc.mem_write(U_DAT, struct.pack('<H', rx.pop(0) if rx else 0))
+        uc.mem_write(U_DAT, struct.pack('<H', 0 if dr[0] is None else dr[0])); dr[0] = None
 uc.hook_add(UC_HOOK_MEM_READ, on_read, begin=U_STS, end=U_DAT + 1)
 
 def setw(a, v, n=4):
     uc.mem_write(a, v.to_bytes(n, 'little'))
 
-def call(send=b'', k=0, ticks=None, idle=None, ir=False):
-    rx.extend(send); key[0] = k; out.clear()
+def call1(byte=None, k=0, ticks=None, idle=None, ir=False):
+    """One main-loop pass. Bytes arriving while the register is full are lost, as on the chip."""
+    if byte is not None and dr[0] is None:
+        dr[0] = byte
+    key[0] = k
     if ticks is not None: setw(TICKS, ticks)
     if idle is not None: setw(IDLE, idle)
     setw(IRF, 4 if ir else 1, 1)
@@ -72,7 +77,19 @@ def call(send=b'', k=0, ticks=None, idle=None, ir=False):
     uc.emu_start(HOOK | 1, 0x08000000, count=20000)
     assert uc.reg_read(UC_ARM_REG_SP) == 0x20001800
     assert [uc.reg_read(x) for x in (UC_ARM_REG_R4, UC_ARM_REG_R5, UC_ARM_REG_R6, UC_ARM_REG_R7)] == [0x44, 0x55, 0x66, 0x77]
-    return uc.reg_read(UC_ARM_REG_R0) & 0xFF, ''.join(out), uc.mem_read(PWROFF, 1)[0]
+    return uc.reg_read(UC_ARM_REG_R0) & 0xFF
+
+
+def call(send=b'', k=0, ticks=None, idle=None, ir=False):
+    """Send bytes the way the PC does (one byte per pass, next one after its echo).
+    Returns (first non-zero key, printed text, power-off flag)."""
+    out.clear(); echo.clear()
+    keys = [call1(None, k, ticks, idle, ir)] if not send else []
+    for i, b in enumerate(send):
+        keys.append(call1(b, k if i == 0 else 0, ticks, idle, ir))
+        assert echo and echo[-1] == (b | 0x80), f'byte {b!r} not echoed'
+    return next((x for x in keys if x), 0), ''.join(out), uc.mem_read(PWROFF, 1)[0]
+
 
 ok = True
 def check(name, cond, info=''):
@@ -97,11 +114,13 @@ call(ticks=2851)
 r = call(ticks=3300, ir=True);             check('repeat: never on the IR page', r[0] == 0, r)
 r = call(k=0x2B, ticks=3400);              check('real key restarts the wait', r[0] == 0x2B, r)
 r = call(ticks=3799);                      check('...not before 2 s after the key', r[0] == 0, r)
-r = call(b'#R0\n', ticks=9000);            check('#R0 stops repeating', r[0] == 0 and 'R=0' in r[1], r)
+r = call(b'#R0\n', ticks=3500);            check('#R0 accepted', 'R=0' in r[1], r)
+r = call(ticks=20000);                     check('...no repeat afterwards', r[0] == 0, r)
 r = call(b'#A1\n', idle=199);              check('#A1, idle 199 ticks -> stay on', r[2] == 0 and 'A=1' in r[1], r)
 r = call(idle=200);                        check('idle 200 ticks (1 s) -> power off', r[2] == 1, r)
 setw(PWROFF, 0, 1)
-r = call(b'#A0\n', idle=10**6);            check('#A0 -> never from the hook', r[2] == 0, r)
+r = call(b'#A0\n', idle=0);                check('#A0 accepted', 'A=0' in r[1] and r[2] == 0, r)
+r = call(idle=10**6);                      check('...never powers off from the hook', r[2] == 0, r)
 r = call(b'#O\n');                         check('#O -> power off now', r[2] == 1 and r[1].startswith('\n#O'), r)
 setw(PWROFF, 0, 1)
 r = call(b'#R99999\n');                    check('values clamped to 3600', 'R=3600' in r[1], repr(r[1]))
@@ -110,4 +129,12 @@ r = call(b'#R1x\n');                       check('malformed line dropped', r[1] 
 r = call(b'#R123456789012\n');             check('over-long line dropped', r[1] == '', r)
 r = call(b'\x00\xff garbage T\n');         check('line noise without # ignored', r == (0, '', 0), r)
 r = call(b'#R0\n#A300\n#T\n');             check('several commands in one read', r[0] == 0x21 and r[1].count('#') == 3, repr(r[1]))
+# the PC must pace: a whole line in one go overruns the 1-byte register -> only '#' arrives
+out.clear(); echo.clear(); setw(IRF, 1, 1)
+for b in b'#?\n':
+    if dr[0] is None:
+        dr[0] = b                            # all three bytes arrive before the next pass
+call1()
+check('unpaced line: bytes after the first are lost (why the PC waits for echoes)', bytes(echo) == bytes([ord('#') | 0x80]) and not out)
+call(b'\n')                                 # end that partial line (dropped: no letter)
 sys.exit(0 if ok else 1)

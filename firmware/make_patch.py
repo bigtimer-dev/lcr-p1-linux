@@ -25,6 +25,8 @@ STOCK = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'fw', 'APP_LCR-
 STOCK_SHA256 = '5ccce71cec5798e9a88befe5b29613f2c38cd3f10fca85a0e64c5bed4ded85a5'
 NO_IR = os.environ.get('NO_IR') == '1'
 OUT = os.path.join(BUILD, 'APP_LCR-P1-EN_V1.1.0u_noir.BIN' if NO_IR else 'APP_LCR-P1-EN_V1.1.0u.BIN')
+if os.environ.get('PIN_DEBUG') == '1':
+    OUT = OUT.replace('.BIN', '_pindebug.BIN')
 
 BASE = 0x08001800                                   # app link address (bootloader below)
 DRAWCHAR, DRAWGLYPH = 0x08005C20, 0x08005D24
@@ -83,6 +85,7 @@ AUTOOFF_S = int(os.environ.get('AUTOOFF_S', '300'))
 assert 30 <= AUTOOFF_S <= 3600, 'AUTOOFF_S: 30..3600'
 run('arm-none-eabi-gcc', '-Os', '-mcpu=cortex-m0', '-mthumb', '-ffreestanding', '-fno-builtin', '-nostdlib',
     '-fno-common', '-ffunction-sections', '-fdata-sections', '-Wall', '-Werror', f'-DAUTOOFF_DEFAULT_S={AUTOOFF_S}',
+    *(['-DPIN_DEBUG'] if os.environ.get('PIN_DEBUG') == '1' else []),
     '-c', src('control.c'), '-o', 'control.o')
 run('arm-none-eabi-ld', '-T', src('link.ld'), '-e', 'hook_char', '--orphan-handling=error', '-o', 'patch.elf',
     'uart_mirror.o', 'ir_decode.o', 'control.o')

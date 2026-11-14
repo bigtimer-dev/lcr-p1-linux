@@ -106,17 +106,20 @@ def cmd_main(argv=None):
     if not dev:
         print('Meter not found (switch it on, USB connected).', file=sys.stderr)
         return 1
+    from .port import Pacer
     fd = open_port(dev)
     got, buf = [], b''
     p = Parser(lambda r: got.append(r) if r.get('event') == 'control' else None)
     try:
         for c in argv:
             n = len(got)
-            os.write(fd, f'#{c}\n'.encode())
-            end = time.time() + 5          # a running test delays the answer
+            pacer = Pacer()
+            pacer.add(c)
+            end = time.time() + 15          # a running test delays the answer
             while len(got) == n and time.time() < end:
-                if _select.select([fd], [], [], 0.2)[0]:
-                    buf += os.read(fd, 512)
+                pacer.pump(fd)
+                if _select.select([fd], [], [], 0.02)[0]:
+                    buf += pacer.feed(os.read(fd, 512))
                     *lines, rest = buf.split(b'\n')
                     buf = rest
                     for ln in lines:

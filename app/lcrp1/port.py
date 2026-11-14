@@ -46,6 +46,53 @@ def open_port(dev):
     return fd
 
 
+class Pacer:
+    """Sends command bytes one at a time: the meter's USART holds a single byte and the firmware
+    reads it once per main-loop pass, so each byte goes out only after the meter echoed the
+    previous one (echo = byte | 0x80, never part of the ASCII screen text)."""
+
+    WAIT, TRIES = 3.0, 2            # a running test pauses the main loop for ~1-3 s
+
+    def __init__(self):
+        self.queue = bytearray()
+        self.waiting = None         # (byte, deadline, tries)
+        self.lock = threading.Lock()
+
+    def add(self, cmd):
+        with self.lock:
+            self.queue += f'#{cmd}\n'.encode()
+
+    def busy(self):
+        return bool(self.queue or self.waiting)
+
+    def feed(self, data):
+        """Take incoming bytes; returns them without echoes."""
+        if self.waiting and (self.waiting[0] | 0x80) in data:
+            self.waiting = None
+        return bytes(b for b in data if b < 0x80)
+
+    def pump(self, fd):
+        """Send the next byte if allowed."""
+        now = time.time()
+        with self.lock:
+            if self.waiting:
+                b, deadline, tries = self.waiting
+                if now < deadline:
+                    return
+                if tries >= self.TRIES:     # meter not answering (old firmware?): drop the line
+                    self.waiting = None
+                    i = self.queue.find(b'\n')
+                    del self.queue[:i + 1 if i >= 0 else len(self.queue)]
+                    return
+                os.write(fd, bytes([b]))
+                self.waiting = (b, now + self.WAIT, tries + 1)
+                return
+            if self.queue:
+                b = self.queue.pop(0)
+                os.write(fd, bytes([b]))
+                self.waiting = (b, now + self.WAIT, 1)
+
+
 class Reader(threading.Thread):
     """Finds the meter, reads it, reconnects after power cycles.
 
@@ -63,19 +110,15 @@ class Reader(threading.Thread):
         self.idle.set()
         self.fd = None
         self._wlock = threading.Lock()
+        self.pacer = Pacer()
 
     def send(self, cmd):
-        """Send a command line to the meter, e.g. 'T', 'R5', 'A300', 'O', '?'. Patched firmware
-        with serial commands answers with a '#<cmd> R=.. A=.. P=..' line. Returns False when
-        not connected."""
-        with self._wlock:
-            if self.fd is None:
-                return False
-            try:
-                os.write(self.fd, f'#{cmd}\n'.encode())
-                return True
-            except OSError:
-                return False
+        """Queue a command for the meter, e.g. 'T', 'R5', 'A300', 'O', '?'. Firmware with serial
+        commands answers '#<cmd> R=.. A=.. P=..'. Returns False when not connected."""
+        if self.fd is None:
+            return False
+        self.pacer.add(cmd)
+        return True
 
     def stop(self):
         self._stop.set()
@@ -116,16 +159,21 @@ class Reader(threading.Thread):
             self.idle.clear()
             with self._wlock:
                 self.fd = fd
+                self.pacer = Pacer()
             self.on_status(f'Connected on {dev}', True)
             last_state = 'conn'
             buf, last = '', time.time()
             try:
                 while not self._stop.is_set() and not self._paused.is_set():
-                    r, _, _ = select.select([fd], [], [], 0.2)
+                    self.pacer.pump(fd)
+                    r, _, _ = select.select([fd], [], [], 0.02 if self.pacer.busy() else 0.2)
                     if r:
                         data = os.read(fd, 1024)
                         if not data:
                             raise OSError('meter disconnected')
+                        data = self.pacer.feed(data)
+                        if not data:
+                            continue
                         if self.on_raw:
                             self.on_raw(data)
                         buf += data.decode('latin-1')

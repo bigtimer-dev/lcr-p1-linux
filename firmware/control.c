@@ -6,6 +6,9 @@
  * the button (and ignores on the IR page, as for the button).
  *
  * Commands: '#' + letter [+ decimal number] + CR/LF. Reply: "#<letter> R=<s> A=<s> P=<page>".
+ * Every received byte is echoed with bit 7 set (screen text is ASCII, so echoes are unambiguous):
+ * the USART buffers only one byte and this runs once per main-loop
+ * pass, so the sender must wait for each echo before sending the next byte.
  *   #T    run a test (as pressing TEST)
  *   #R<s> repeat a test every s seconds after the previous one finished, #R0 = off
  *   #A<s> auto power-off after s seconds idle, #A0 = off (the timer ISR still powers off after 60 min)
@@ -41,7 +44,26 @@ typedef int (*keyscan_t)(void);
 typedef int (*printf_t)(const char *, ...);
 #define KEYSCAN ((keyscan_t)0x080051E1)
 #define PRINTF  ((printf_t)0x08008FA5)
+typedef int (*putc_t)(int);
+#define PUTC    ((putc_t)0x0800B2DD)    /* fputc -> USART1 */
 
+#ifdef PIN_DEBUG
+/* diagnostic build: once a second print USART1 status and the port A/B/F input levels */
+int key_hook(void)
+{
+    static uint32_t * const last = (uint32_t *)0x20001F08;
+    int k = KEYSCAN();
+    uint32_t now = TICKS;
+    if (now - *last >= TICK_HZ) {
+        *last = now;
+        PRINTF("\n#D %x %x %x %x\n", U_STS, *(volatile uint32_t *)0x40010810,
+               *(volatile uint32_t *)0x40010C10, *(volatile uint32_t *)0x40011C10);
+        while (U_STS & 0x20)
+            (void)U_DAT;
+    }
+    return k;
+}
+#else
 int key_hook(void)
 {
     struct ctl *c = CTL;
@@ -60,7 +82,10 @@ int key_hook(void)
         c->tdone = now;
     }
     while (U_STS & 0x20) {
+        /* The USART holds one byte and the main loop polls slowly, so the PC sends a byte only
+           after the previous one is echoed (lcrp1/port.py). */
         char ch = U_DAT;
+        PUTC(ch | 0x80);        /* echo, marked: screen text is plain ASCII */
         if (ch == '#') {
             c->len = 1;
         } else if (c->len && (ch == '\n' || ch == '\r')) {
@@ -97,3 +122,4 @@ int key_hook(void)
         c->wait = 1;
     return k;
 }
+#endif
