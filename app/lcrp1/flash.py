@@ -57,9 +57,23 @@ def check(img):
     return errs
 
 
-def flash(img, dev, progress=None):
-    """Send img; progress(done, total) per block. Returns (ok, message)."""
+def flash(img, dev, progress=None, listen=1.2):
+    """Send img; progress(done, total) per block. Returns (ok, message).
+
+    The bootloader is silent in update mode. If the meter sends anything during the first `listen`
+    seconds it is running a firmware instead (e.g. lcrp1-fw prints a status line every second): then
+    nothing is sent, so the image cannot end up as input for the running firmware."""
     fd = open_port(dev)
+    heard, end = b'', time.time() + listen
+    while time.time() < end:
+        r, _, _ = select.select([fd], [], [], 0.1)
+        if r:
+            heard += os.read(fd, 256)
+    if heard:
+        os.close(fd)
+        text = heard[:40].decode('latin-1', 'replace').replace('\r', ' ').replace('\n', ' ').strip()
+        return False, (f'The meter is running its firmware, not in update mode (it sent "{text}"). '
+                       'Nothing was sent. Switch it off, hold ZENER, then press TEST.')
     os.write(fd, bytes([0xAC, 0x55, 0x02, 0x03]))
     termios.tcdrain(fd)
     os.close(fd)
