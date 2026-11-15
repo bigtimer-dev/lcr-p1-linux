@@ -112,3 +112,15 @@ LCD SPI pins are never logged as events. This build has no serial commands and n
 decoder runs) to fit the code space. `PYTHONPATH=app python3 firmware/pinlog.py` walks through the key
 presses and mode changes and prints each pin change with its step; `--replay` decodes a saved log.
 
+## How the bootloader starts the app
+
+Read from the bootloader itself (dumped with the `FLASH_DUMP=1` diagnostic build, which prints flash
+0x08000000-0x080017FF over USB serial when it receives `D`; the dump is not published):
+
+- At power-on it reads **PF7 (ZENER)**: held = update mode, released = start the app.
+- Start: it sets the N32's vector-table remap register `0x40024C30 |= 0x08001800 | 0x80000000` (the
+  Cortex-M0 has no VTOR), then **checks the app's initial stack pointer: `(SP & 0x0FFFFFFF) < 0x2000`**,
+  disables its own peripherals and IRQ11, loads MSP and jumps to the reset vector.
+- If the SP check fails it does not start the app and stays in update mode **with the power latch on**:
+  the meter can then only be switched off by disconnecting the battery. `lcrp1 flash` refuses such images.
+

@@ -40,8 +40,10 @@ def check(img):
     if len(img) < 8:
         return ['file too small']
     sp, rst = struct.unpack_from('<II', img, 0)
-    if not 0x20000000 < sp <= 0x20002000:
-        errs.append(f'initial SP {sp:#x} looks wrong: not an LCR-P1 app image?')
+    if not 0x20000000 < sp < 0x20002000:
+        # the bootloader starts an app only if (SP & 0x0FFFFFFF) < 0x2000; otherwise it stays in update
+        # mode, holding the power latch (only a battery disconnect switches the meter off then)
+        errs.append(f'initial SP {sp:#x} must be below 0x20002000 or the bootloader will not start it')
     if not (rst & 1 and APP_BASE <= rst < APP_BASE + len(img)):
         errs.append(f'reset vector {rst:#x} outside the image: not an LCR-P1 app image?')
     bl = blocks(img)

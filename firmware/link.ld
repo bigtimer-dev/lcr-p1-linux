@@ -13,12 +13,13 @@ SECTIONS {
     uart_mirror.o(.text)
     control.o(.text.key_hook)
     *pindump.o(.text.pin_isr .rodata.reg .rodata.excl)   /* PIN_DEBUG build only (no IR patch) */
+    *flashdump.o(.text* .rodata*)                         /* FLASH_DUMP build only */
     ir_decode.o(.text.sony* .text.ir_edge_isr)
     screen.o(.text.pixel_hook .text.remap*)
   }
   ASSERT(. <= 0x0800F7E8, "region A overflow")
   .patchB 0x0800F804 : { ir_decode.o(.text.ir_poll .text.ac_print) control.o(.rodata*) ir_decode.o(.rodata.ac_print*)
-             *pindump.o(.text* .rodata*) }
+             *pindump.o(.text* .rodata*) . = ALIGN(2); }
   ASSERT(. <= 0x0800FA72, "region B overflow")
   .patchC 0x08004848 : { ir_decode.o(.text.gree*) screen.o(.text.color_char) }
   ASSERT(. <= 0x08004978, "region C overflow")

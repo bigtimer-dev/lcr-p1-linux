@@ -8,6 +8,7 @@ Output: build/APP_LCR-P1-EN_V1.1.0u.BIN (same size as stock). Options (environme
                      changeable over USB with #A<s>)
     LOWBAT_MV=3400   low-battery shutdown, value as shown on the battery screen (stock ~3500)
     BOOT_ART=mask    boot picture, from firmware/art/<name>.py (mask, skull)
+    FLASH_DUMP=1     diagnostic build (..._flashdump.BIN): send 'D' over USB serial to dump the bootloader
     PIN_DEBUG=1      diagnostic build (..._pindebug.BIN): logs GPIO changes over USB serial instead of
                      taking serial commands (firmware/pindump.c, PC side tools/pinlog.py)
 
@@ -28,6 +29,8 @@ STOCK_SHA256 = '5ccce71cec5798e9a88befe5b29613f2c38cd3f10fca85a0e64c5bed4ded85a5
 OUT = os.path.join(BUILD, 'APP_LCR-P1-EN_V1.1.0u.BIN')
 if os.environ.get('PIN_DEBUG') == '1':
     OUT = OUT.replace('.BIN', '_pindebug.BIN')
+if os.environ.get('FLASH_DUMP') == '1':
+    OUT = OUT.replace('.BIN', '_flashdump.BIN')
 
 BASE = 0x08001800                                   # app link address (bootloader below)
 DRAWCHAR, DRAWGLYPH = 0x08005C20, 0x08005D24
@@ -89,8 +92,9 @@ run('arm-none-eabi-gcc', '-Os', '-mcpu=cortex-m0', '-mthumb', '-ffreestanding', 
     '-o', 'ir_decode.o')
 AUTOOFF_S = int(os.environ.get('AUTOOFF_S', '300'))
 assert 30 <= AUTOOFF_S <= 3600, 'AUTOOFF_S: 30..3600'
-PIN_DEBUG = os.environ.get('PIN_DEBUG') == '1'
-CTL = 'pindump' if PIN_DEBUG else 'control'          # PIN_DEBUG: GPIO logger replaces the serial commands
+FLASH_DUMP = os.environ.get('FLASH_DUMP') == '1'     # bootloader dump over serial (firmware/flashdump.c)
+PIN_DEBUG = os.environ.get('PIN_DEBUG') == '1' or FLASH_DUMP   # diagnostic builds: no commands, no IR patch
+CTL = 'flashdump' if FLASH_DUMP else 'pindump' if PIN_DEBUG else 'control'
 run('arm-none-eabi-gcc', '-Os', '-mcpu=cortex-m0', '-mthumb', '-ffreestanding', '-fno-builtin', '-nostdlib',
     *(['-fno-tree-loop-distribute-patterns'] if PIN_DEBUG else []), '-fno-common', '-ffunction-sections',
     '-fdata-sections', '-Wall', '-Werror', f'-DAUTOOFF_DEFAULT_S={AUTOOFF_S}', '-c', src(CTL + '.c'), '-o', CTL + '.o')
@@ -101,7 +105,7 @@ if PIN_DEBUG:   # link.ld names these files: empty stand-ins (no serial commands
     for f in ('control', 'ir_decode'):
         run('arm-none-eabi-gcc', '-mcpu=cortex-m0', '-mthumb', '-x', 'c', '-c', '/dev/null', '-o', f + '.o')
 run('arm-none-eabi-ld', '-T', src('link.ld'), '-e', 'hook_char', '--orphan-handling=error', '-o', 'patch.elf',
-    'uart_mirror.o', 'ir_decode.o', 'control.o', 'screen.o', *(['pindump.o'] if PIN_DEBUG else []))
+    'uart_mirror.o', 'ir_decode.o', 'control.o', 'screen.o', *([CTL + '.o'] if PIN_DEBUG else []))
 elf = os.path.join(BUILD, 'patch.elf')
 code = {}
 for r in 'ABCDEFG':
@@ -149,7 +153,7 @@ for a, old_b, new_b in ((0x08008F5C, b'\x01\x21', b'\x03\x21'),   # movs r1,#1 -
     img[o(a):o(a) + 2] = new_b
 assert img[o(KEY_SITE):o(KEY_SITE) + 4] == bl(KEY_SITE, KEYSCAN)
 img[o(KEY_SITE):o(KEY_SITE) + 4] = bl(KEY_SITE, sym(elf, 'key_hook'))
-if PIN_DEBUG:   # GPIO sampler wraps the stock 200 Hz timer ISR (IRQ20)
+if PIN_DEBUG and not FLASH_DUMP:   # GPIO sampler wraps the stock 200 Hz timer ISR (IRQ20)
     VEC_IRQ20, STOCK_TICK_ISR = 0x90, 0x080060F5
     assert struct.unpack_from('<I', img, VEC_IRQ20)[0] == STOCK_TICK_ISR
     struct.pack_into('<I', img, VEC_IRQ20, sym(elf, 'pin_isr') | 1)
