@@ -24,7 +24,7 @@ patches that exact file.
 | PC control | none | run a test, auto-repeat tests, auto power-off, power off (USB serial commands) |
 | Low-battery shutdown | ~3.5 V | 3.4 V (`LOWBAT_MV`, 3.3 – 3.6 V) |
 
-Measurement code is untouched. The image is the same size as stock and the calibration is kept.
+Measurement code is untouched. The image is the same size as stock and keeps the stock calibration code.
 
 Tested on a real LCR-P1: resistors and capacitors read the same as with stock firmware; NEC (LG codes
 from a Google TV remote), Samsung TV and Gree-type AC remotes decode on the meter. Sony is tested in
@@ -61,6 +61,12 @@ PYTHONPATH=app python3 -m lcrp1 flash build/APP_LCR-P1-EN_V1.1.0u.BIN     # or: 
 
 `Update successful (reply ac 55 03 04)` means done; the meter restarts. To go back, flash FNIRSI's stock
 file the same way. The bootloader is not touched by updates, so update mode always works.
+
+**Calibration.** The stock and patched images reach 0x0800FF8C, so their last 512-byte block also rewrites
+the flash page holding the meter's calibration record (`dEnK` at 0x0800FFD0). FNIRSI's loader does not
+keep it, and neither does the LCR-P1 bootloader. After such an update the meter asks for the short-connector
+calibration again. Images that end lower, such as lcrp1-fw, leave that page alone. Run
+`lcrp1 flash --backup` first if the LCR-P1 bootloader is installed.
 
 With the [LCR-P1 bootloader](https://github.com/bigtimer-dev/lcr-p1-fw/tree/main/boot) installed, the same
 command uses its checked protocol: CRC per frame, verify per page, and an image CRC check before the app
