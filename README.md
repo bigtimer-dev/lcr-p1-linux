@@ -62,6 +62,16 @@ PYTHONPATH=app python3 -m lcrp1 flash build/APP_LCR-P1-EN_V1.1.0u.BIN     # or: 
 `Update successful (reply ac 55 03 04)` means done; the meter restarts. To go back, flash FNIRSI's stock
 file the same way. The bootloader is not touched by updates, so update mode always works.
 
+With the [LCR-P1 bootloader](https://github.com/bigtimer-dev/lcr-p1-fw/tree/main/boot) installed, the same
+command uses its checked protocol: CRC per frame, verify per page, and an image CRC check before the app
+can start. If the meter runs lcrp1-fw, the flasher sends `#U` to switch it to update mode, so no keys are
+needed. Extra options:
+
+```sh
+lcrp1 flash --baud 460800 lcrp1-fw.bin     # faster link
+lcrp1 flash --backup flash-backup.bin      # read all 64 KB (bootloader, app, calibration)
+```
+
 Your user needs access to the serial port (`uucp` group on Arch, `dialout` on Debian/Ubuntu).
 
 ## The app
